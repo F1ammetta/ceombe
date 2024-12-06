@@ -66,10 +66,10 @@ packages:
     dependency: transitive
     description:
       name: coverage
-      sha256: "88b0fddbe4c92910fefc09cc0248f5e7f0cd23e450ded4c28f16ab8ee8f83268"
+      sha256: e3493833ea012784c740e341952298f1cc77f1f01b1bbc3eb4eecf6984fb7f43
       url: "https://pub.dev"
     source: hosted
-    version: "1.10.0"
+    version: "1.11.1"
   crypto:
     dependency: transitive
     description:
@@ -150,6 +150,22 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.7.1"
+  json_annotation:
+    dependency: transitive
+    description:
+      name: json_annotation
+      sha256: "1ce844379ca14835a50d2f019a3099f419082cfdd231cd86a142af94dd5c6bb1"
+      url: "https://pub.dev"
+    source: hosted
+    version: "4.9.0"
+  lavalink:
+    dependency: "direct main"
+    description:
+      name: lavalink
+      sha256: "8631bda4d4d21cd933327ff70e4addd17dd7dbb97c9de14c2a1a845fffbe0844"
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.0.0"
   lints:
     dependency: "direct dev"
     description:
@@ -210,10 +226,18 @@ packages:
     dependency: "direct main"
     description:
       name: nyxx
-      sha256: "073c4f3a49269b4580c54aef32a472b3eae0e6f0e125eb1be2eeb5976210e886"
+      sha256: "3ee891f4098c0dd7b992dafc2b4e961b82bd076b3149a15408efda1e11c7c5aa"
       url: "https://pub.dev"
     source: hosted
-    version: "6.5.0"
+    version: "6.5.2"
+  nyxx_lavalink:
+    dependency: "direct main"
+    description:
+      name: nyxx_lavalink
+      sha256: "3034ae31c265013b632785673df10f75a05e9f5eeec39a4b478ef1359064ac19"
+      url: "https://pub.dev"
+    source: hosted
+    version: "4.0.0-dev.1"
   oauth2:
     dependency: transitive
     description:
@@ -306,10 +330,10 @@ packages:
     dependency: transitive
     description:
       name: shelf_web_socket
-      sha256: "073c147238594ecd0d193f3456a5fe91c4b0abbcc68bf5cd95b36c4e194ac611"
+      sha256: cc36c297b52866d203dbf9332263c94becc2fe0ceaa9681d07b6ef9807023b67
       url: "https://pub.dev"
     source: hosted
-    version: "2.0.0"
+    version: "2.0.1"
   source_map_stack_trace:
     dependency: transitive
     description:
@@ -378,26 +402,26 @@ packages:
     dependency: "direct dev"
     description:
       name: test
-      sha256: "713a8789d62f3233c46b4a90b174737b2c04cb6ae4500f2aa8b1be8f03f5e67f"
+      sha256: "22eb7769bee38c7e032d532e8daa2e1cc901b799f603550a4db8f3a5f5173ea2"
       url: "https://pub.dev"
     source: hosted
-    version: "1.25.8"
+    version: "1.25.12"
   test_api:
     dependency: transitive
     description:
       name: test_api
-      sha256: "664d3a9a64782fcdeb83ce9c6b39e78fd2971d4e37827b9b06c3aa1edc5e760c"
+      sha256: fb31f383e2ee25fbbfe06b40fe21e1e458d14080e3c67e7ba0acfde4df4e0bbd
       url: "https://pub.dev"
     source: hosted
-    version: "0.7.3"
+    version: "0.7.4"
   test_core:
     dependency: transitive
     description:
       name: test_core
-      sha256: "12391302411737c176b0b5d6491f466b0dd56d4763e347b6714efbaa74d7953d"
+      sha256: "84d17c3486c8dfdbe5e12a50c8ae176d15e2a771b96909a9442b40173649ccaa"
       url: "https://pub.dev"
     source: hosted
-    version: "0.6.5"
+    version: "0.6.8"
   toml:
     dependency: "direct main"
     description:
@@ -418,10 +442,10 @@ packages:
     dependency: transitive
     description:
       name: vm_service
-      sha256: "0968250880a6c5fe7edc067ed0a13d4bae1577fe2771dcf3010d52c4a9d3ca14"
+      sha256: ddfa8d30d89985b96407efce8acbdd124701f96741f2d981ca860662f1c0dc02
       url: "https://pub.dev"
     source: hosted
-    version: "14.3.1"
+    version: "15.0.0"
   watcher:
     dependency: transitive
     description:
