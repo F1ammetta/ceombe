@@ -44,8 +44,8 @@ void connectToVoiceChannel(Config config, User user, String sessionId,
       final ip = event['d']['ip'];
       final port = event['d']['port'];
       final ssrc = event['d']['ssrc'];
-      final mode = event['d']['modes'][0];
 
+      final mode = event['d']['modes'][0];
       ws.sink.add(jsonEncode({
         'op': 5,
         'd': {
@@ -54,18 +54,7 @@ void connectToVoiceChannel(Config config, User user, String sessionId,
           'ssrc': ssrc,
         }
       }));
-      connectUdp(config, ip, port, ssrc, ws);
-      ws.sink.add(jsonEncode({
-        'op': 1,
-        'd': {
-          'protocol': 'udp',
-          'data': {
-            'address': config.discordUdpIp,
-            'port': config.discordUdpPort,
-            'mode': mode,
-          }
-        }
-      }));
+      connectUdp(mode, config, ip, port, ssrc, ws);
     } else if (event['op'] == 8) {
       final interval = event['d']['heartbeat_interval'];
       sendHearbeat(ws, interval);
@@ -82,12 +71,16 @@ void connectToVoiceChannel(Config config, User user, String sessionId,
   });
 }
 
-Future<void> connectUdp(
-    Config config, String ip, int port, int ssrc, WebSocketChannel ws) async {
-  final udp = await RawDatagramSocket.bind(
-      InternetAddress("192.168.1.73"), config.discordUdpPort);
+Uint8List int32BigEndianBytes(int value) =>
+    Uint8List(4)..buffer.asByteData().setInt32(0, value, Endian.big);
 
-  final testfile = 'test.flac';
+Future<void> connectUdp(String mode, Config config, String ip, int port,
+    int ssrc, WebSocketChannel ws) async {
+  final udp = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
+  final ffmpegudp =
+      await RawDatagramSocket.bind(InternetAddress("127.0.0.1"), 5004);
+
+  final testfile = 'test.opus';
   var sequenceNumber = 0;
   var timestamp = 0;
 
@@ -101,46 +94,115 @@ Future<void> connectUdp(
     '48000',
     '-f',
     'opus',
-    '-b:a',
-    '96k',
+    // '-b:a',
+    // '96k',
     '-application',
     'lowdelay',
-    'pipe:1'
+    'rtp://127.0.0.1:5004'
   ]);
 
-  final audioBuffer = BytesBuilder();
-
-  ffmpeg.stdout.listen((data) async {
-    audioBuffer.add(data);
-
-    while (audioBuffer.length >= 960) {
-      final opusData = audioBuffer.takeBytes().sublist(0, 960);
-
-      final rtpHeader = generateRtpHeader(
-          sequenceNumber: sequenceNumber, timestamp: timestamp, ssrc: ssrc);
-
-      sequenceNumber = (sequenceNumber + 1) % 65536;
-      timestamp += 960; // 20ms at 48kHz
-
-      final encryptedPacket = await encryptPacket(
-        Uint8List.fromList(rtpHeader),
-        Uint8List.fromList(opusData),
-        secretKey,
-      );
-
-      udp.send(encryptedPacket, InternetAddress(ip), port);
-    }
-  });
+  var audioBuffer = BytesBuilder();
 
   udp.listen((event) {
     if (event == RawSocketEvent.read) {
       final datagram = udp.receive();
       if (datagram != null) {
         // Handle any UDP responses if needed
-        print('Received ${datagram.data}');
+        parseResponse(ws, mode, datagram.data);
       }
     }
   });
+  final pingPacket = createRequestPacket(ssrc);
+  udp.send(pingPacket, InternetAddress(ip), port);
+
+  while (secretKey.isEmpty) {
+    await Future.delayed(Duration(milliseconds: 100));
+  }
+  print('Secret key: $secretKey');
+  ffmpegudp.listen((event) async {
+    if (event == RawSocketEvent.read) {
+      final datagram = ffmpegudp.receive();
+      if (datagram != null) {
+        audioBuffer.add(datagram.data);
+        var opusData = Uint8List(0);
+        while (audioBuffer.length >= 960) {
+          opusData = audioBuffer.takeBytes().sublist(0, 960);
+        }
+        if (opusData.isEmpty) {
+          return;
+        }
+        final rtpHeader = generateRtpHeader(
+            sequenceNumber: sequenceNumber, timestamp: timestamp, ssrc: ssrc);
+        final encryptedPacket =
+            await encryptPacket(rtpHeader, opusData, secretKey);
+
+        udp.send(encryptedPacket, InternetAddress(ip), port);
+        sequenceNumber++;
+        timestamp += 960;
+      }
+    }
+  });
+}
+
+Uint8List createRequestPacket(int ssrc) {
+  final packet = Uint8List(70 + 4); // Total size: 2 + 2 + 4 + 64 = 70
+  final buffer = ByteData.sublistView(packet);
+
+  // Set Type (0x01 for request)
+  buffer.setUint16(0, 0x01); // 2 bytes
+
+  // Set Length (70)
+  buffer.setUint16(2, 70); // 2 bytes
+
+  // Set SSRC
+  buffer.setUint32(4, ssrc); // 4 bytes
+
+  // Padding (automatically 0 since Uint8List initializes with 0)
+
+  return packet;
+}
+
+void parseResponse(WebSocketChannel ws, String mode, Uint8List response) {
+  final buffer = ByteData.sublistView(response);
+
+  // Validate Type
+  final type = buffer.getUint16(0);
+  if (type != 0x02) {
+    // TODO: handdle responses
+    return;
+  }
+
+  // Validate Length
+  final length = buffer.getUint16(2);
+  if (length != 70) {
+    print('Invalid response length: $length');
+    return;
+  }
+
+  // Extract SSRC
+  final ssrc = buffer.getUint32(4);
+  print('SSRC: $ssrc');
+
+  // Extract Address
+  final addressBytes = response.sublist(8, 72); // Null-terminated string
+  final ip = String.fromCharCodes(addressBytes.takeWhile((byte) => byte != 0));
+  print('External IP: $ip');
+
+  // Extract Port
+  final port = buffer.getUint16(72);
+  print('External Port: $port');
+
+  ws.sink.add(jsonEncode({
+    'op': 1,
+    'd': {
+      'protocol': 'udp',
+      'data': {
+        'address': ip,
+        'port': port,
+        'mode': mode,
+      }
+    }
+  }));
 }
 
 // Example RTP Header Generation
@@ -156,17 +218,19 @@ Uint8List generateRtpHeader(
   header.addByte(0x78); // Marker 0, Payload Type 120
 
   // Sequence Number (16 bits)
-  header.addByte((sequenceNumber >> 8) & 0xFF);
   header.addByte(sequenceNumber & 0xFF);
+  header.addByte((sequenceNumber >> 8) & 0xFF);
 
   // Timestamp (32 bits)
-  for (int i = 3; i >= 0; i--) {
-    header.addByte((timestamp >> (i * 8)) & 0xFF);
+  final timestampBytes = int32BigEndianBytes(timestamp);
+  for (int i = 0; i < 4; i++) {
+    header.addByte(timestampBytes[i]);
   }
 
   // SSRC (32 bits)
-  for (int i = 3; i >= 0; i--) {
-    header.addByte((ssrc >> (i * 8)) & 0xFF);
+  final ssrcBytes = int32BigEndianBytes(ssrc);
+  for (int i = 0; i < 4; i++) {
+    header.addByte(ssrcBytes[i]);
   }
 
   return header.toBytes();
@@ -174,28 +238,17 @@ Uint8List generateRtpHeader(
 
 Future<Uint8List> encryptPacket(
     Uint8List rtpHeader, Uint8List opusData, List<int> secretKey) async {
-  // Create AES-GCM algorithm
-  final algorithm = AesGcm.with256bits();
-
-  // Use first 12 bytes of RTP header as nonce
+  final aesGcm = AesGcm.with256bits();
   final nonce = rtpHeader.sublist(0, 12);
-
-  // Combine RTP header and Opus data
-  final plaintext = Uint8List.fromList([...rtpHeader, ...opusData]);
-
-  // Perform encryption
   final secretKeyData = SecretKey(secretKey);
-  final encrypted = await algorithm.encrypt(
-    plaintext,
+
+  final encrypted = await aesGcm.encrypt(
+    opusData,
     secretKey: secretKeyData,
     nonce: nonce,
   );
 
-  // Combine ciphertext and MAC
-  final encryptedPacket =
-      Uint8List.fromList([...encrypted.cipherText, ...encrypted.mac.bytes]);
-
-  return encryptedPacket;
+  return Uint8List.fromList([...rtpHeader, ...encrypted.cipherText]);
 }
 
 Future<void> sendHearbeat(WebSocketChannel ws, dynamic interval) async {
@@ -212,29 +265,18 @@ class Player {}
 
 class Config {
   String discordToken;
-  String discordUdpIp;
-  int discordUdpPort;
   String commandPrefix;
   String subsonicUrl;
   String subsonicUser;
   String subsonicSalt;
   String subsonicToken;
 
-  Config(
-      this.discordToken,
-      this.discordUdpIp,
-      this.discordUdpPort,
-      this.commandPrefix,
-      this.subsonicUrl,
-      this.subsonicUser,
-      this.subsonicSalt,
-      this.subsonicToken);
+  Config(this.discordToken, this.commandPrefix, this.subsonicUrl,
+      this.subsonicUser, this.subsonicSalt, this.subsonicToken);
 
   factory Config.fromToml(Map<String, dynamic> toml) {
-    Config config = Config('', '', 0, '', '', '', '', '');
+    Config config = Config('', '', '', '', '', '');
     config.discordToken = toml['discord']['token'];
-    config.discordUdpIp = toml['discord']['bot_ip'];
-    config.discordUdpPort = toml['discord']['bot_port'];
     config.commandPrefix = toml['discord']['prefix'];
     config.subsonicUrl = toml['server']['url'];
     config.subsonicUser = toml['server']['username'];
@@ -246,6 +288,6 @@ class Config {
 
   @override
   String toString() {
-    return 'Config{discordToken: $discordToken, discord_upd_ip: $discordUdpIp, discord_upd_port: $discordUdpPort, commandPrefix: $commandPrefix, subsonicUrl: $subsonicUrl, subsonicUser: $subsonicUser, subsonicSalt: $subsonicSalt, subsonicToken: $subsonicToken}';
+    return 'Config{discordToken: $discordToken, commandPrefix: $commandPrefix, subsonicUrl: $subsonicUrl, subsonicUser: $subsonicUser, subsonicSalt: $subsonicSalt, subsonicToken: $subsonicToken}';
   }
 }
