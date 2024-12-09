@@ -112,9 +112,9 @@ func commandHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
 			return
 		}
 
-		song := result.Song[0]
+		// song := result.Song[0]
 
-		stream, err := subsonicClient.Stream(song.ID, map[string]string{"format": "opus", "maxBitRate": "128"})
+		// stream, err := subsonicClient.Stream(song.ID, map[string]string{"format": "opus", "maxBitRate": "128"})
 
 		if err != nil {
 			fmt.Println("Error: ", err)
@@ -124,7 +124,7 @@ func commandHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
 		chann.Speaking(true)
 
 		cmd := exec.Command("ffmpeg", "-re",
-			"-i", "-",
+			"-i", "test.ogx",
 			"-f", "s16le",
 			"-ac", "2",
 			"-ar", "48000",
@@ -132,7 +132,7 @@ func commandHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
 			"-application", "lowdelay",
 			"pipe:1")
 
-		ffmpegIn, err := cmd.StdinPipe()
+		// ffmpegIn, err := cmd.StdinPipe()
 		ffmpegOut, err := cmd.StdoutPipe()
 
 		go func() {
@@ -188,22 +188,22 @@ func commandHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 		}()
 
-		for {
-			streambuffer := make([]byte, 4096)
-
-			n, err := stream.Read(streambuffer)
-
-			if err != nil {
-				fmt.Println("get stream Error: ", err)
-				break
-			}
-
-			if n == 0 {
-				break
-			}
-
-			ffmpegIn.Write(streambuffer)
-		}
+		// for {
+		// 	streambuffer := make([]byte, 4096)
+		//
+		// 	n, err := stream.Read(streambuffer)
+		//
+		// 	if err != nil {
+		// 		fmt.Println("get stream Error: ", err)
+		// 		break
+		// 	}
+		//
+		// 	if n == 0 {
+		// 		break
+		// 	}
+		//
+		// 	ffmpegIn.Write(streambuffer)
+		// }
 
 		// for {
 		// 	buffer := make([]byte, 320)
