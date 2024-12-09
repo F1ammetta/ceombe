@@ -6,6 +6,7 @@ require (
 	github.com/bwmarrin/discordgo v0.28.1
 	github.com/delucks/go-subsonic v0.0.0-20240806025900-2a743ec36238
 	github.com/pelletier/go-toml/v2 v2.2.3
+	layeh.com/gopus v0.0.0-20210501142526-1ee02d434e32
 )
 
 require (

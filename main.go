@@ -1,12 +1,15 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"github.com/bwmarrin/discordgo"
 	"github.com/delucks/go-subsonic"
 	"github.com/pelletier/go-toml/v2"
+	"layeh.com/gopus"
 	"net/http"
 	"os"
+	"os/exec"
 	"strings"
 )
 
@@ -120,12 +123,78 @@ func commandHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 		chann.Speaking(true)
 
-		for {
-			buffer := make([]byte, 320)
-			n, err := stream.Read(buffer)
+		cmd := exec.Command("ffmpeg", "-re",
+			"-i", "-",
+			"-f", "s16le",
+			"-ac", "2",
+			"-ar", "48000",
+			"-b:a", "128k",
+			"-application", "lowdelay",
+			"pipe:1")
+
+		ffmpegIn, err := cmd.StdinPipe()
+		ffmpegOut, err := cmd.StdoutPipe()
+
+		go func() {
+			err := cmd.Start()
+
+			encoder, err := gopus.NewEncoder(48000, 2, gopus.Audio)
+			frameSize := 960
+			maxBytes := 960 * 2 * 2
 
 			if err != nil {
 				fmt.Println("Error: ", err)
+				return
+			}
+
+			reader := bufio.NewReader(ffmpegOut)
+
+			for {
+				buffer := make([]byte, 4096)
+
+				n, err := reader.Read(buffer)
+
+				if err != nil {
+					fmt.Println("Error: ", err)
+					break
+				}
+
+				if n == 0 {
+					break
+				}
+
+				encbuf := make([]int16, frameSize*2)
+
+				for i := 0; i < maxBytes/2; i++ {
+					encbuf[i] = int16(buffer[i*2]) | int16(buffer[i*2+1])<<8
+				}
+
+				opus, err := encoder.Encode(encbuf, frameSize, maxBytes)
+
+				if err != nil {
+					fmt.Println("Error: ", err)
+					break
+				}
+
+				if chann.Ready == false || chann.OpusSend == nil {
+
+					return
+				}
+
+				println("Sending opus packet of size: ", len(opus))
+
+				chann.OpusSend <- opus
+			}
+
+		}()
+
+		for {
+			streambuffer := make([]byte, 4096)
+
+			n, err := stream.Read(streambuffer)
+
+			if err != nil {
+				fmt.Println("get stream Error: ", err)
 				break
 			}
 
@@ -133,11 +202,27 @@ func commandHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
 				break
 			}
 
-			// fmt.Println("buffer: ", buffer)
-
-			chann.OpusSend <- buffer
-
+			ffmpegIn.Write(streambuffer)
 		}
+
+		// for {
+		// 	buffer := make([]byte, 320)
+		// 	n, err := stream.Read(buffer)
+		//
+		// 	if err != nil {
+		// 		fmt.Println("Error: ", err)
+		// 		break
+		// 	}
+		//
+		// 	if n == 0 {
+		// 		break
+		// 	}
+		//
+		// 	// fmt.Println("buffer: ", buffer)
+		//
+		// 	chann.OpusSend <- buffer
+		//
+		// }
 
 	} else if m.Content == config.Discord.Prefix+"join" {
 		user := m.Author
