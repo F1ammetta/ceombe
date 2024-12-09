@@ -63,8 +63,8 @@ func commandHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 		var str strings.Builder
 
-		str.WriteString("Artist | Title\n")
 		str.WriteString("```")
+		str.WriteString("Artist - Title\n")
 		for _, song := range result.Song {
 			str.WriteString(fmt.Sprintf("%s - %s\n", song.Artist, song.Title))
 		}
@@ -72,7 +72,99 @@ func commandHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 		s.ChannelMessageSend(m.ChannelID, str.String())
 
+	} else if strings.HasPrefix(m.Content, config.Discord.Prefix+"play") {
+		user := m.Author
+
+		voiceState, err := s.State.VoiceState(m.GuildID, user.ID)
+
+		if err != nil {
+			fmt.Println("Error: ", err)
+			return
+		}
+
+		if voiceState == nil {
+			s.ChannelMessageSend(m.ChannelID, "You need to be in a voice channel to use this command.")
+			return
+		}
+
+		chann, err := s.ChannelVoiceJoin(m.GuildID, voiceState.ChannelID, false, true)
+
+		if err != nil {
+			fmt.Println("Error: ", err)
+			return
+		}
+
+		s.ChannelMessageSend(m.ChannelID, "Joined voice channel.")
+
+		query := strings.TrimPrefix(m.Content, config.Discord.Prefix+"play")
+
+		result, err := subsonicClient.Search3(query, map[string]string{})
+		if err != nil {
+			fmt.Println("Error: ", err)
+			return
+		}
+
+		if len(result.Song) == 0 {
+			s.ChannelMessageSend(m.ChannelID, "No results found.")
+			return
+		}
+
+		song := result.Song[0]
+
+		stream, err := subsonicClient.Stream(song.ID, map[string]string{"format": "opus", "maxBitRate": "128"})
+
+		if err != nil {
+			fmt.Println("Error: ", err)
+			return
+		}
+
+		chann.Speaking(true)
+
+		for {
+			buffer := make([]byte, 320)
+			n, err := stream.Read(buffer)
+
+			if err != nil {
+				fmt.Println("Error: ", err)
+				break
+			}
+
+			if n == 0 {
+				break
+			}
+
+			// fmt.Println("buffer: ", buffer)
+
+			chann.OpusSend <- buffer
+
+		}
+
+	} else if m.Content == config.Discord.Prefix+"join" {
+		user := m.Author
+
+		voiceState, err := s.State.VoiceState(m.GuildID, user.ID)
+
+		if err != nil {
+			fmt.Println("Error: ", err)
+			return
+		}
+
+		if voiceState == nil {
+			s.ChannelMessageSend(m.ChannelID, "You need to be in a voice channel to use this command.")
+			return
+		}
+
+		_, err = s.ChannelVoiceJoin(m.GuildID, voiceState.ChannelID, false, true)
+
+		if err != nil {
+			fmt.Println("Error: ", err)
+			return
+		}
+
+		s.ChannelMessageSend(m.ChannelID, "Joined voice channel.")
+
 	}
+
 }
 
 func main() {
