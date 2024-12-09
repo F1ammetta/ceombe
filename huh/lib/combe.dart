@@ -54,6 +54,7 @@ void connectToVoiceChannel(Config config, User user, String sessionId,
           'ssrc': ssrc,
         }
       }));
+      print('Connected to voice channel with encryption mode: $mode');
       connectUdp(mode, config, ip, port, ssrc, ws);
     } else if (event['op'] == 8) {
       final interval = event['d']['heartbeat_interval'];
@@ -73,6 +74,9 @@ void connectToVoiceChannel(Config config, User user, String sessionId,
 
 Uint8List int32BigEndianBytes(int value) =>
     Uint8List(4)..buffer.asByteData().setInt32(0, value, Endian.big);
+
+Uint8List int16BigEndianBytes(int value) =>
+    Uint8List(2)..buffer.asByteData().setInt16(0, value, Endian.big);
 
 Future<void> connectUdp(String mode, Config config, String ip, int port,
     int ssrc, WebSocketChannel ws) async {
@@ -94,10 +98,16 @@ Future<void> connectUdp(String mode, Config config, String ip, int port,
     '48000',
     '-f',
     'opus',
-    // '-b:a',
-    // '96k',
+    '-b:a',
+    '128k',
     '-application',
     'lowdelay',
+    '-acodec',
+    'libopus',
+    '-frame_duration',
+    '20',
+    '-payload_size',
+    '960',
     'rtp://127.0.0.1:5004'
   ]);
 
@@ -136,6 +146,7 @@ Future<void> connectUdp(String mode, Config config, String ip, int port,
         final encryptedPacket =
             await encryptPacket(rtpHeader, opusData, secretKey);
 
+        print('Sending packet with sequence number $sequenceNumber');
         udp.send(encryptedPacket, InternetAddress(ip), port);
         sequenceNumber++;
         timestamp += 960;
@@ -169,6 +180,7 @@ void parseResponse(WebSocketChannel ws, String mode, Uint8List response) {
   final type = buffer.getUint16(0);
   if (type != 0x02) {
     // TODO: handdle responses
+    // print(response);
     return;
   }
 
@@ -218,8 +230,10 @@ Uint8List generateRtpHeader(
   header.addByte(0x78); // Marker 0, Payload Type 120
 
   // Sequence Number (16 bits)
-  header.addByte(sequenceNumber & 0xFF);
-  header.addByte((sequenceNumber >> 8) & 0xFF);
+  final sequenceNumberBytes = int16BigEndianBytes(sequenceNumber);
+  for (int i = 0; i < 2; i++) {
+    header.addByte(sequenceNumberBytes[i]);
+  }
 
   // Timestamp (32 bits)
   final timestampBytes = int32BigEndianBytes(timestamp);
@@ -233,19 +247,23 @@ Uint8List generateRtpHeader(
     header.addByte(ssrcBytes[i]);
   }
 
+  print('Generated RTP Header: ${header.toBytes()}');
   return header.toBytes();
 }
+
+int nonce = 0;
 
 Future<Uint8List> encryptPacket(
     Uint8List rtpHeader, Uint8List opusData, List<int> secretKey) async {
   final aesGcm = AesGcm.with256bits();
-  final nonce = rtpHeader.sublist(0, 12);
+  final noncebytes = int32BigEndianBytes(nonce++);
+
   final secretKeyData = SecretKey(secretKey);
 
   final encrypted = await aesGcm.encrypt(
     opusData,
     secretKey: secretKeyData,
-    nonce: nonce,
+    nonce: noncebytes,
   );
 
   return Uint8List.fromList([...rtpHeader, ...encrypted.cipherText]);
