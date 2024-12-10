@@ -8,8 +8,8 @@ import (
 	"os/exec"
 	"strings"
 
+	"ceombe/go-subsonic"
 	"github.com/bwmarrin/discordgo"
-	"github.com/delucks/go-subsonic"
 	"github.com/pelletier/go-toml/v2"
 	"layeh.com/gopus"
 )
@@ -124,7 +124,9 @@ func commandHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
 			return
 		}
 
-		// song := result.Song[0]
+		song := result.Song[0]
+
+		streamUrl, err := subsonicClient.GetStreamUrl(song.ID, map[string]string{"format": "opus", "maxBitRate": "128"})
 
 		// stream, err := subsonicClient.Stream(song.ID, map[string]string{"format": "opus", "maxBitRate": "128"})
 
@@ -135,9 +137,9 @@ func commandHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 		chann.Speaking(true)
 		if player.Playing == "" {
-			player.Playing = "test.ogx"
+			player.Playing = streamUrl
 		} else {
-			player.Queue = append(player.Queue, "test.ogx")
+			player.Queue = append(player.Queue, streamUrl)
 			s.ChannelMessageSend(m.ChannelID, "Added to the queue.")
 			println("Queue: ", player.Queue)
 			return
@@ -154,6 +156,14 @@ func commandHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 		// ffmpegIn, err := cmd.StdinPipe()
 		ffmpegOut, err := cmd.StdoutPipe()
+		ffmpegErr, err := cmd.StderrPipe()
+
+		go func() {
+			scanner := bufio.NewScanner(ffmpegErr)
+			for scanner.Scan() {
+				fmt.Println(scanner.Text())
+			}
+		}()
 
 		go func() {
 			err := cmd.Start()
