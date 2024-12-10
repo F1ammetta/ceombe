@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"ceombe/go-subsonic"
+
 	"github.com/bwmarrin/discordgo"
 	"github.com/pelletier/go-toml/v2"
 	"layeh.com/gopus"
@@ -30,14 +31,13 @@ type Config struct {
 	Discord Discord
 }
 type Player struct {
-	Playing    string    // Path to the current song
-	Queue      []string  // Queue of songs to play
-	Position   int64     // Current playback position in bytes
-	Paused     bool      // Indicates whether playback is paused
-	Loop       chan bool // Channel to signal resume
-	PauseChan  chan bool // Channel to signal pause/resume
-	ResumeChan chan bool // Channel to signal resume
-	Skip       bool      // Indicates whether to skip the current song
+	Playing  string   // Path to the current song
+	Query    string   // Query for the current song
+	Queue    []string // Queue of songs to play
+	Position int64    // Current playback position in bytes
+	Paused   bool     // Indicates whether playback is paused
+	Loop     bool     // Channel to signal resume
+	Skip     bool     // Indicates whether to skip the current song
 }
 
 var config Config
@@ -138,14 +138,17 @@ func commandHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
 		chann.Speaking(true)
 		if player.Playing == "" {
 			player.Playing = streamUrl
+			player.Query = query
 		} else {
-			player.Queue = append(player.Queue, streamUrl)
+			player.Queue = append(player.Queue, query)
 			s.ChannelMessageSend(m.ChannelID, "Added to the queue.")
 			println("Queue: ", player.Queue)
 			return
 		}
+		bytesPerSecond := int64(48000 * 2 * 2) // SampleRate * Channels * BytesPerSample
+		seekTime := float64(player.Position) / float64(bytesPerSecond)
 		cmd := exec.Command("ffmpeg", "-re",
-			"-ss", fmt.Sprintf("%.2f", float64(player.Position)/48000),
+			"-ss", fmt.Sprintf("%.2f", seekTime),
 			"-i", player.Playing,
 			"-f", "s16le",
 			"-ac", "2",
@@ -178,7 +181,7 @@ func commandHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
 			}
 
 			reader := bufio.NewReader(ffmpegOut)
-			var position int64 = 0
+			var position int64 = player.Position
 
 			for {
 				if player.Paused || player.Skip {
@@ -221,21 +224,32 @@ func commandHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
 				position += int64(n)
 			}
 			player.Playing = ""
+
 			player.Skip = false
 			println("Song finished.", player.Skip)
 			if player.Paused {
 				player.Position = position
 			} else if len(player.Queue) > 0 {
+				player.Query = ""
 				s.ChannelMessageSend(m.ChannelID, "Playing next song.")
 				println("Queue: ", player.Queue)
 				var newS *discordgo.MessageCreate = m
-				//newS.Content = config.Discord.Prefix + "play " + player.Queue[0]
+				newS.Content = config.Discord.Prefix + "play" + player.Queue[0]
 				//println("newM: ", newS.Content)
 				player.Queue = player.Queue[1:]
-				commandHandler(s, newS)
 				player.Position = 0
+				commandHandler(s, newS)
+
+			} else if player.Loop {
+				player.Query = ""
+				var newS *discordgo.MessageCreate = m
+				newS.Content = config.Discord.Prefix + "play" + query
+				player.Position = 0
+				s.ChannelMessageSend(m.ChannelID, "Looping song.")
+				commandHandler(s, newS)
 
 			} else {
+				player.Query = ""
 				player.Position = 0
 			}
 
@@ -311,8 +325,15 @@ func commandHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
 		player.Paused = false
 		s.ChannelMessageSend(m.ChannelID, "Resumed.")
 		var newS *discordgo.MessageCreate = m
-		newS.Content = config.Discord.Prefix + "play houdini" //for now at least
+		newS.Content = config.Discord.Prefix + "play " + player.Query //for now at least
 		commandHandler(s, newS)
+	} else if m.Content == config.Discord.Prefix+"loop" {
+		player.Loop = !player.Loop
+		if player.Loop {
+			s.ChannelMessageSend(m.ChannelID, "Looping enabled.")
+		} else {
+			s.ChannelMessageSend(m.ChannelID, "Looping disabled.")
+		}
 	}
 
 }
