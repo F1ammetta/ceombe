@@ -177,7 +177,9 @@ func commandHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 			if err != nil {
 				fmt.Println("Error: ", err)
-				return
+				if err.Error() != "EOF" {
+					return
+				}
 			}
 
 			reader := bufio.NewReader(ffmpegOut)
@@ -193,7 +195,9 @@ func commandHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 				if err != nil {
 					fmt.Println("Error: ", err)
-					break
+					if err.Error() != "EOF" {
+						break
+					}
 				}
 
 				if n == 0 {
@@ -210,7 +214,9 @@ func commandHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 				if err != nil {
 					fmt.Println("Error: ", err)
-					break
+					if err.Error() != "EOF" {
+						break
+					}
 				}
 
 				if chann.Ready == false || chann.OpusSend == nil {
