@@ -3,14 +3,15 @@ package main
 import (
 	"bufio"
 	"fmt"
-	"github.com/bwmarrin/discordgo"
-	"github.com/delucks/go-subsonic"
-	"github.com/pelletier/go-toml/v2"
-	"layeh.com/gopus"
 	"net/http"
 	"os"
 	"os/exec"
 	"strings"
+
+	"github.com/bwmarrin/discordgo"
+	"github.com/delucks/go-subsonic"
+	"github.com/pelletier/go-toml/v2"
+	"layeh.com/gopus"
 )
 
 type Server struct {
@@ -28,9 +29,20 @@ type Config struct {
 	Server  Server
 	Discord Discord
 }
+type Player struct {
+	Playing    string    // Path to the current song
+	Queue      []string  // Queue of songs to play
+	Position   int64     // Current playback position in bytes
+	Paused     bool      // Indicates whether playback is paused
+	Loop       chan bool // Channel to signal resume
+	PauseChan  chan bool // Channel to signal pause/resume
+	ResumeChan chan bool // Channel to signal resume
+	Skip       bool      // Indicates whether to skip the current song
+}
 
 var config Config
 var subsonicClient subsonic.Client
+var player Player
 
 func commandHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
 	if m.Author.ID == s.State.User.ID {
@@ -122,9 +134,17 @@ func commandHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
 		}
 
 		chann.Speaking(true)
-
+		if player.Playing == "" {
+			player.Playing = "test.ogx"
+		} else {
+			player.Queue = append(player.Queue, "test.ogx")
+			s.ChannelMessageSend(m.ChannelID, "Added to the queue.")
+			println("Queue: ", player.Queue)
+			return
+		}
 		cmd := exec.Command("ffmpeg", "-re",
-			"-i", "test.ogx",
+			"-ss", fmt.Sprintf("%.2f", float64(player.Position)/48000),
+			"-i", player.Playing,
 			"-f", "s16le",
 			"-ac", "2",
 			"-ar", "48000",
@@ -148,8 +168,12 @@ func commandHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
 			}
 
 			reader := bufio.NewReader(ffmpegOut)
+			var position int64 = 0
 
 			for {
+				if player.Paused || player.Skip {
+					break
+				}
 				buffer := make([]byte, 4096)
 
 				n, err := reader.Read(buffer)
@@ -181,9 +205,28 @@ func commandHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
 					return
 				}
 
-				println("Sending opus packet of size: ", len(opus))
+				//println("Sending opus packet of size: ", len(opus))
 
 				chann.OpusSend <- opus
+				position += int64(n)
+			}
+			player.Playing = ""
+			player.Skip = false
+			println("Song finished.", player.Skip)
+			if player.Paused {
+				player.Position = position
+			} else if len(player.Queue) > 0 {
+				s.ChannelMessageSend(m.ChannelID, "Playing next song.")
+				println("Queue: ", player.Queue)
+				var newS *discordgo.MessageCreate = m
+				//newS.Content = config.Discord.Prefix + "play " + player.Queue[0]
+				//println("newM: ", newS.Content)
+				player.Queue = player.Queue[1:]
+				commandHandler(s, newS)
+				player.Position = 0
+
+			} else {
+				player.Position = 0
 			}
 
 		}()
@@ -248,6 +291,18 @@ func commandHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 		s.ChannelMessageSend(m.ChannelID, "Joined voice channel.")
 
+	} else if m.Content == config.Discord.Prefix+"skip" {
+		player.Skip = true
+		s.ChannelMessageSend(m.ChannelID, "Skipping song.")
+	} else if m.Content == config.Discord.Prefix+"pause" {
+		player.Paused = true
+		s.ChannelMessageSend(m.ChannelID, "Paused.")
+	} else if m.Content == config.Discord.Prefix+"resume" {
+		player.Paused = false
+		s.ChannelMessageSend(m.ChannelID, "Resumed.")
+		var newS *discordgo.MessageCreate = m
+		newS.Content = config.Discord.Prefix + "play houdini" //for now at least
+		commandHandler(s, newS)
 	}
 
 }
