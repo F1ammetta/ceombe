@@ -184,6 +184,14 @@ func handlePlayCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 		}
 	}()
 
+	s.ChannelMessageSendEmbed(m.ChannelID, &discordgo.MessageEmbed{
+		Title:       "Now playing",
+		Description: fmt.Sprintf("%s - %s", song.Artist, song.Title),
+		Thumbnail: &discordgo.MessageEmbedThumbnail{
+			URL: song.CoverArt,
+		},
+	})
+
 	go func() {
 		err := cmd.Start()
 
