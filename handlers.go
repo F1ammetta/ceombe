@@ -144,6 +144,17 @@ func handlePlayCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 	song := result.Song[0]
 
+	println("Playing: ", song.Artist, " - ", song.Title)
+	println("Cover art: ", song.CoverArt)
+
+	s.ChannelMessageSendEmbed(m.ChannelID, &discordgo.MessageEmbed{
+		Title:       "Now playing",
+		Description: fmt.Sprintf("%s - %s", song.Artist, song.Title),
+		Thumbnail: &discordgo.MessageEmbedThumbnail{
+			URL: song.CoverArt,
+		},
+	})
+
 	streamUrl, err := subsonicClient.GetStreamUrl(song.ID, map[string]string{"format": "opus", "maxBitRate": "128"})
 
 	// stream, err := subsonicClient.Stream(song.ID, map[string]string{"format": "opus", "maxBitRate": "128"})
@@ -183,14 +194,6 @@ func handlePlayCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 			fmt.Println(scanner.Text())
 		}
 	}()
-
-	s.ChannelMessageSendEmbed(m.ChannelID, &discordgo.MessageEmbed{
-		Title:       "Now playing",
-		Description: fmt.Sprintf("%s - %s", song.Artist, song.Title),
-		Thumbnail: &discordgo.MessageEmbedThumbnail{
-			URL: song.CoverArt,
-		},
-	})
 
 	go func() {
 		err := cmd.Start()
