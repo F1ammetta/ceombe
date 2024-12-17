@@ -51,8 +51,7 @@ def get_metadata(filename):
     for track in tracks:
         score = rank(
             filename,
-            f"{
-                track.name} - {track.artists[0].name}",
+            f"{track.name} - {track.artists[0].name}",
         )
         print(f"Track: {track.name} - {track.artists[0]} Score: {score}")
         if score > max:
