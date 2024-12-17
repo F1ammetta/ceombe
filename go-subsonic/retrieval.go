@@ -183,7 +183,39 @@ func (s *Client) GetCoverArt(id string, parameters map[string]string) (image.Ima
 func (s *Client) GetCoverArtUrl(id string) string {
 	params := url.Values{}
 	params.Add("id", id)
-	return s.BaseUrl + "/rest/getCoverArt.view?" + params.Encode()
+	endpoint := "getCoverArt"
+
+	baseUrl, err := url.Parse(s.BaseUrl)
+	if err != nil {
+		return ""
+	}
+	baseUrl.Path = path.Join(baseUrl.Path, "/rest/", endpoint)
+	req, err := http.NewRequest("get", baseUrl.String(), nil)
+	if err != nil {
+		return ""
+	}
+
+	q := req.URL.Query()
+	q.Add("f", "xml")
+	q.Add("v", supportedApiVersion)
+	q.Add("c", s.ClientName)
+	q.Add("u", s.User)
+	if s.PasswordAuth {
+		q.Add("p", s.password)
+	} else {
+		q.Add("t", s.token)
+		q.Add("s", s.salt)
+	}
+
+	for key, values := range params {
+		for _, val := range values {
+			q.Add(key, val)
+		}
+	}
+
+	req.URL.RawQuery = q.Encode()
+
+	return req.URL.String()
 }
 
 // GetAvatar returns the avatar (personal image) for a user.
