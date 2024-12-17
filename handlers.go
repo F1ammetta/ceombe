@@ -18,6 +18,8 @@ import (
 func handleDownCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 	url := strings.TrimPrefix(m.Content, config.Discord.Prefix+"d")
 
+	s.ChannelMessageSend(m.ChannelID, "Downloading song...")
+
 	cmd := exec.Command("./song_dl.py", url)
 
 	err := cmd.Run()
