@@ -145,7 +145,7 @@ func handlePlayCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 	song := result.Song[0]
 
 	println("Playing: ", song.Artist, " - ", song.Title)
-	println("Cover art: ", song.CoverArt)
+	println("Cover art: url", subsonicClient.GetCoverArtUrl(song.CoverArt))
 
 	_, error := s.ChannelMessageSendEmbed(m.ChannelID, &discordgo.MessageEmbed{
 		Title:       "Now playing",
