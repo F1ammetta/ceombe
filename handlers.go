@@ -15,6 +15,22 @@ import (
 	"layeh.com/gopus"
 )
 
+func handleDownCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
+	url := strings.TrimPrefix(m.Content, config.Discord.Prefix+"d")
+
+	cmd := exec.Command("./song_dl.py", url)
+
+	err := cmd.Run()
+
+	if err != nil {
+		fmt.Println("Error: ", err)
+		return
+	}
+
+	s.ChannelMessageSend(m.ChannelID, "Downloaded song.")
+
+}
+
 func handleJoinCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 	user := m.Author

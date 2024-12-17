@@ -63,9 +63,13 @@ func commandHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 		handleSearchCommand(s, m)
 
-	} else if strings.HasPrefix(m.Content, config.Discord.Prefix+"play") || strings.HasPrefix(m.Content, config.Discord.Prefix+"p") {
+	} else if strings.HasPrefix(m.Content, config.Discord.Prefix+"play") {
 
 		handlePlayCommand(s, m)
+
+	} else if m.Content == config.Discord.Prefix+"d" {
+
+		handleDownCommand(s, m)
 
 	} else if m.Content == config.Discord.Prefix+"join" {
 
