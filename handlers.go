@@ -147,13 +147,18 @@ func handlePlayCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 	println("Playing: ", song.Artist, " - ", song.Title)
 	println("Cover art: ", song.CoverArt)
 
-	s.ChannelMessageSendEmbed(m.ChannelID, &discordgo.MessageEmbed{
+	_, error := s.ChannelMessageSendEmbed(m.ChannelID, &discordgo.MessageEmbed{
 		Title:       "Now playing",
 		Description: fmt.Sprintf("%s - %s", song.Artist, song.Title),
 		Thumbnail: &discordgo.MessageEmbedThumbnail{
-			URL: song.CoverArt,
+			URL: subsonicClient.GetCoverArtUrl(song.CoverArt),
 		},
 	})
+
+	if error != nil {
+		fmt.Println("Error: ", error)
+		return
+	}
 
 	streamUrl, err := subsonicClient.GetStreamUrl(song.ID, map[string]string{"format": "opus", "maxBitRate": "128"})
 

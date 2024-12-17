@@ -150,6 +150,7 @@ func (s *Client) GetCoverArt(id string, parameters map[string]string) (image.Ima
 	if size, ok := parameters["size"]; ok {
 		params.Add("size", size)
 	}
+
 	response, err := s.Request("GET", "getCoverArt", params)
 	if err != nil {
 		return nil, err
@@ -178,6 +179,11 @@ func (s *Client) GetCoverArt(id string, parameters map[string]string) (image.Ima
 		return nil, err
 	}
 	return image, nil
+}
+func (s *Client) GetCoverArtUrl(id string) string {
+	params := url.Values{}
+	params.Add("id", id)
+	return s.BaseUrl + "/rest/getCoverArt.view?" + params.Encode()
 }
 
 // GetAvatar returns the avatar (personal image) for a user.
