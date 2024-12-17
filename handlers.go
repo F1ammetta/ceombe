@@ -22,7 +22,21 @@ func handleDownCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 	cmd := exec.Command("python3", "song_dl.py", url)
 
-	err := cmd.Run()
+	stdout, err := cmd.StdoutPipe()
+
+	if err != nil {
+		fmt.Println("Error: ", err)
+		return
+	}
+
+	go func() {
+		scanner := bufio.NewScanner(stdout)
+		for scanner.Scan() {
+			fmt.Println(scanner.Text())
+		}
+	}()
+
+	err = cmd.Run()
 
 	if err != nil {
 		fmt.Println("Error: ", err)
