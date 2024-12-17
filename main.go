@@ -67,7 +67,7 @@ func commandHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 		handlePlayCommand(s, m)
 
-	} else if m.Content == config.Discord.Prefix+"d" {
+	} else if strings.HasPrefix(m.Content, config.Discord.Prefix+"d") {
 
 		handleDownCommand(s, m)
 
