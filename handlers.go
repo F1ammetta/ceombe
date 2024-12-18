@@ -155,6 +155,8 @@ func handlePlayCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 		},
 	})
 
+	s.UpdateGameStatus(0, fmt.Sprintf("%s - %s", song.Artist, song.Title))
+
 	if error != nil {
 		fmt.Println("Error: ", error)
 		return
@@ -263,6 +265,7 @@ func handlePlayCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 		player.Skip = false
 		println("Song finished.", player.Skip)
+		s.UpdateGameStatus(0, "")
 		if player.Paused {
 			player.Position = position
 		} else if len(player.Queue) > 0 {
