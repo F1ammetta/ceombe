@@ -146,7 +146,13 @@ func checkForExit(d *discordgo.Session) {
 			}
 
 			if len(guild.VoiceStates) == 1 {
-				c.Disconnect()
+				_, err = d.ChannelVoiceJoin(guild.ID, "", false, true)
+
+				if err != nil {
+					fmt.Println("Error: ", err)
+					continue
+				}
+
 				fmt.Println("Disconnected.")
 			}
 		}
