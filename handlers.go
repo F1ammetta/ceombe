@@ -20,7 +20,7 @@ func handleDownCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 	s.ChannelMessageSend(m.ChannelID, "Downloading song...")
 
-	cmd := exec.Command("./song_dl.py", url)
+	cmd := exec.Command("python3 song_dl.py ", url)
 
 	err := cmd.Run()
 
