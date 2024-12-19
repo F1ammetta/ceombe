@@ -3,3 +3,6 @@
 .dart_tool/
 
 config.toml
+auth.toml
+
+ceombe
