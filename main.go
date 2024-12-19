@@ -148,7 +148,6 @@ func checkForExit(d *discordgo.Session) {
 			if len(guild.VoiceStates) == 1 {
 				c.Disconnect()
 				fmt.Println("Disconnected.")
-				return
 			}
 		}
 
