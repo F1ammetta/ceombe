@@ -6,4 +6,4 @@ Prefix = "~"
 Url = "https://example.com"
 Username = "username"
 Password = "password"
-
+music_dir = "/path/to/music/dir"
