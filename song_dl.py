@@ -9,7 +9,7 @@ import music_tag
 import sys
 
 nsongs = 0
-root = toml.load("config.toml")["server"]["music_dir"]
+root = toml.load("config.toml")["Server"]["music_dir"]
 authfile = toml.load("auth.toml")
 client_id = authfile["spotify"]["client_id"]
 client_secret = authfile["spotify"]["client_secret"]
@@ -20,7 +20,7 @@ def get_bigrams(string):
     Take a string and return a list of bigrams.
     """
     s = string.lower()
-    return [s[i : i + 2] for i in list(range(len(s) - 1))]
+    return [s[i: i + 2] for i in list(range(len(s) - 1))]
 
 
 def rank(str1, str2):
