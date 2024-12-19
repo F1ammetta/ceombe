@@ -15,6 +15,49 @@ import (
 	"layeh.com/gopus"
 )
 
+func handleLeaveCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
+	user := m.Author
+
+	voiceState, err := s.State.VoiceState(m.GuildID, user.ID)
+
+	if err != nil {
+		fmt.Println("Error: ", err)
+		return
+	}
+
+	if voiceState == nil {
+		s.ChannelMessageSend(m.ChannelID, "You need to be in a voice channel to use this command.")
+		return
+	}
+
+	_, err = s.ChannelVoiceJoin(m.GuildID, "", false, true)
+
+	if err != nil {
+		fmt.Println("Error: ", err)
+		return
+	}
+
+	s.ChannelMessageSend(m.ChannelID, "Left voice channel.")
+}
+
+func handleQueueCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
+	if len(player.Queue) == 0 {
+		s.ChannelMessageSend(m.ChannelID, "Queue is empty.")
+		return
+	}
+
+	var str strings.Builder
+
+	str.WriteString("```")
+	str.WriteString("Queue:\n")
+	for i, song := range player.Queue {
+		str.WriteString(fmt.Sprintf("%d. %s\n", i+1, song))
+	}
+	str.WriteString("```")
+
+	s.ChannelMessageSend(m.ChannelID, str.String())
+}
+
 func handleDownCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 	url := strings.TrimPrefix(m.Content, config.Discord.Prefix+"d")
 
@@ -104,7 +147,7 @@ func handleSearchCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 	s.ChannelMessageSend(m.ChannelID, str.String())
 }
 
-func handlePlayCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
+func handlePlayCommand(s *discordgo.Session, m *discordgo.MessageCreate, prefix string) {
 
 	user := m.Author
 
@@ -129,7 +172,7 @@ func handlePlayCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 	// s.ChannelMessageSend(m.ChannelID, "Joined voice channel.")
 
-	query := strings.TrimPrefix(m.Content, config.Discord.Prefix+"play")
+	query := strings.TrimPrefix(m.Content, config.Discord.Prefix+prefix)
 
 	result, err := subsonicClient.Search3(query, map[string]string{})
 	if err != nil {

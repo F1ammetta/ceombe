@@ -59,17 +59,29 @@ func commandHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 		s.ChannelMessageSend(m.ChannelID, "Pong!")
 
-	} else if strings.HasPrefix(m.Content, config.Discord.Prefix+"search") {
+	} else if strings.HasPrefix(m.Content, config.Discord.Prefix+"search ") {
 
 		handleSearchCommand(s, m)
 
-	} else if strings.HasPrefix(m.Content, config.Discord.Prefix+"play") {
+	} else if strings.HasPrefix(m.Content, config.Discord.Prefix+"play ") {
 
-		handlePlayCommand(s, m)
+		handlePlayCommand(s, m, "play")
 
-	} else if strings.HasPrefix(m.Content, config.Discord.Prefix+"d") {
+	} else if strings.HasPrefix(m.Content, config.Discord.Prefix+"p ") {
+
+		handlePlayCommand(s, m, "p")
+
+	} else if strings.HasPrefix(m.Content, config.Discord.Prefix+"d ") {
 
 		handleDownCommand(s, m)
+
+	} else if m.Content == config.Discord.Prefix+"queue" || m.Content == config.Discord.Prefix+"q" {
+
+		handleQueueCommand(s, m)
+
+	} else if m.Content == config.Discord.Prefix+"leave" {
+
+		handleLeaveCommand(s, m)
 
 	} else if m.Content == config.Discord.Prefix+"join" {
 
