@@ -196,7 +196,7 @@ func connectToSubsonic() (subsonic.Client, error) {
 		BaseUrl:      config.Server.Url,
 		User:         config.Server.Username,
 		ClientName:   "Ceombe",
-		PasswordAuth: true,
+		PasswordAuth: false,
 	}
 
 	err := subsonicClient.Authenticate(config.Server.Password)
