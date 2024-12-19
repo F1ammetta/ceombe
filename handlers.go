@@ -188,7 +188,7 @@ func handlePlayCommand(s *discordgo.Session, m *discordgo.MessageCreate, prefix 
 	song := result.Song[0]
 
 	println("Playing: ", song.Artist, " - ", song.Title)
-	println("Cover art: url", subsonicClient.GetCoverArtUrl(song.CoverArt))
+	println("Cover art: url", subsonicClient.GetCoverArtUrl(song.CoverArt, map[string]string{}))
 
 	streamUrl, err := subsonicClient.GetStreamUrl(song.ID, map[string]string{"format": "opus", "maxBitRate": "128"})
 
@@ -208,7 +208,7 @@ func handlePlayCommand(s *discordgo.Session, m *discordgo.MessageCreate, prefix 
 			Title:       "Now playing",
 			Description: fmt.Sprintf("%s - %s", song.Artist, song.Title),
 			Thumbnail: &discordgo.MessageEmbedThumbnail{
-				URL: subsonicClient.GetCoverArtUrl(song.CoverArt),
+				URL: subsonicClient.GetCoverArtUrl(song.CoverArt, map[string]string{}),
 			},
 		})
 
@@ -228,7 +228,7 @@ func handlePlayCommand(s *discordgo.Session, m *discordgo.MessageCreate, prefix 
 			Title:       "Added to queue",
 			Description: fmt.Sprintf("%s - %s", song.Artist, song.Title),
 			Thumbnail: &discordgo.MessageEmbedThumbnail{
-				URL: subsonicClient.GetCoverArtUrl(song.CoverArt),
+				URL: subsonicClient.GetCoverArtUrl(song.CoverArt, map[string]string{}),
 			},
 		})
 

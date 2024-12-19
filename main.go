@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"ceombe/go-subsonic"
+	"github.com/F1ammetta/go-subsonic"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/pelletier/go-toml/v2"
