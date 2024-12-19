@@ -9,7 +9,7 @@ import music_tag
 import sys
 
 nsongs = 0
-root = "/srv/music"
+root = toml.load("config.toml")["server"]["music_dir"]
 authfile = toml.load("auth.toml")
 client_id = authfile["spotify"]["client_id"]
 client_secret = authfile["spotify"]["client_secret"]
