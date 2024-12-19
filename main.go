@@ -7,6 +7,7 @@ import (
 	"os"
 	// "os/exec"
 	"strings"
+	"time"
 
 	"ceombe/go-subsonic"
 
@@ -119,6 +120,55 @@ func commandHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 }
 
+func checkForExit(d *discordgo.Session) {
+	for {
+
+		// wait for 3 seconds
+		<-time.After(3 * time.Second)
+
+		v := d.VoiceConnections
+
+		if len(v) == 0 {
+			continue
+		}
+
+		for _, c := range v {
+			vchan, err := d.State.Channel(c.ChannelID)
+
+			if err != nil {
+				fmt.Println("Error: ", err)
+				continue
+			}
+
+			if vchan == nil {
+				continue
+			}
+
+			if vchan.GuildID == "" {
+				continue
+			}
+
+			guild, err := d.State.Guild(vchan.GuildID)
+
+			if err != nil {
+				fmt.Println("Error: ", err)
+				continue
+			}
+
+			if guild == nil {
+				continue
+			}
+
+			if len(guild.VoiceStates) == 1 {
+				c.Disconnect()
+				fmt.Println("Disconnected.")
+				return
+			}
+		}
+
+	}
+}
+
 func main() {
 	config.loadToml()
 
@@ -141,6 +191,9 @@ func main() {
 	discord.AddHandler(commandHandler)
 
 	fmt.Println("Bot is now running. Press CTRL-C to exit.")
+
+	go checkForExit(discord)
+
 	<-make(chan struct{})
 }
 
