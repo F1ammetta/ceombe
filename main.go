@@ -133,22 +133,8 @@ func checkForExit(d *discordgo.Session) {
 		}
 
 		for _, c := range v {
-			vchan, err := d.State.Channel(c.ChannelID)
 
-			if err != nil {
-				fmt.Println("Error: ", err)
-				continue
-			}
-
-			if vchan == nil {
-				continue
-			}
-
-			if vchan.GuildID == "" {
-				continue
-			}
-
-			guild, err := d.State.Guild(vchan.GuildID)
+			guild, err := d.State.Guild(c.GuildID)
 
 			if err != nil {
 				fmt.Println("Error: ", err)
