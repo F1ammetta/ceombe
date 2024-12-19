@@ -190,20 +190,7 @@ func handlePlayCommand(s *discordgo.Session, m *discordgo.MessageCreate, prefix 
 	println("Playing: ", song.Artist, " - ", song.Title)
 	println("Cover art: url", subsonicClient.GetCoverArtUrl(song.CoverArt))
 
-	_, error := s.ChannelMessageSendEmbed(m.ChannelID, &discordgo.MessageEmbed{
-		Title:       "Now playing",
-		Description: fmt.Sprintf("%s - %s", song.Artist, song.Title),
-		Thumbnail: &discordgo.MessageEmbedThumbnail{
-			URL: subsonicClient.GetCoverArtUrl(song.CoverArt),
-		},
-	})
-
 	s.UpdateGameStatus(0, fmt.Sprintf("%s - %s", song.Artist, song.Title))
-
-	if error != nil {
-		fmt.Println("Error: ", error)
-		return
-	}
 
 	streamUrl, err := subsonicClient.GetStreamUrl(song.ID, map[string]string{"format": "opus", "maxBitRate": "128"})
 
@@ -218,10 +205,37 @@ func handlePlayCommand(s *discordgo.Session, m *discordgo.MessageCreate, prefix 
 	if player.Playing == "" {
 		player.Playing = streamUrl
 		player.Query = query
+
+		_, error := s.ChannelMessageSendEmbed(m.ChannelID, &discordgo.MessageEmbed{
+			Title:       "Now playing",
+			Description: fmt.Sprintf("%s - %s", song.Artist, song.Title),
+			Thumbnail: &discordgo.MessageEmbedThumbnail{
+				URL: subsonicClient.GetCoverArtUrl(song.CoverArt),
+			},
+		})
+
+		if error != nil {
+			fmt.Println("Error: ", error)
+			return
+		}
+
 	} else {
 		player.Queue = append(player.Queue, query)
 		s.ChannelMessageSend(m.ChannelID, "Added to the queue.")
 		println("Queue: ", player.Queue)
+
+		_, error := s.ChannelMessageSendEmbed(m.ChannelID, &discordgo.MessageEmbed{
+			Title:       "Added to queue",
+			Description: fmt.Sprintf("%s - %s", song.Artist, song.Title),
+			Thumbnail: &discordgo.MessageEmbedThumbnail{
+				URL: subsonicClient.GetCoverArtUrl(song.CoverArt),
+			},
+		})
+
+		if error != nil {
+			fmt.Println("Error: ", error)
+		}
+
 		return
 	}
 	bytesPerSecond := int64(48000 * 2 * 2) // SampleRate * Channels * BytesPerSample
