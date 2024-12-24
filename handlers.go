@@ -11,6 +11,7 @@ import (
 	// "ceombe/go-subsonic"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/go-tts/tts/pkg/speech"
 	// "github.com/pelletier/go-toml/v2"
 	"layeh.com/gopus"
 )
@@ -38,6 +39,151 @@ func handleLeaveCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 	}
 
 	s.ChannelMessageSend(m.ChannelID, "Left voice channel.")
+}
+
+func handleTTSCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
+	text := strings.TrimPrefix(m.Content, config.Discord.Prefix+"tts ")
+
+	user := m.Author
+
+	voiceState, err := s.State.VoiceState(m.GuildID, user.ID)
+
+	if err != nil {
+		fmt.Println("Error: ", err)
+		return
+	}
+
+	if voiceState == nil {
+		s.ChannelMessageSend(m.ChannelID, "You need to be in a voice channel to use this command.")
+		return
+	}
+
+	voice, err := s.ChannelVoiceJoin(m.GuildID, voiceState.ChannelID, false, true)
+
+	if err != nil {
+		fmt.Println("Error: ", err)
+		return
+	}
+
+	audio, err := speech.FromText(text, speech.LangUs)
+
+	if err != nil {
+		fmt.Println("Error: ", err)
+		return
+	}
+
+	// bytesPerSecond := int64(48000 * 2 * 2) // SampleRate * Channels * BytesPerSample
+	cmd := exec.Command("ffmpeg", "-re",
+		"-i", "pipe:0",
+		"-f", "s16le",
+		"-ac", "2",
+		"-ar", "48000",
+		"-application", "lowdelay",
+		"pipe:1")
+
+	ffmpegIn, err := cmd.StdinPipe()
+	ffmpegOut, err := cmd.StdoutPipe()
+	ffmpegErr, err := cmd.StderrPipe()
+
+	go func() {
+		scanner := bufio.NewScanner(ffmpegErr)
+		for scanner.Scan() {
+			fmt.Println(scanner.Text())
+		}
+	}()
+
+	go func() {
+		inbuf := make([]byte, 4096)
+
+		for {
+			n, err := audio.Read(inbuf)
+
+			if err != nil {
+				fmt.Println("Error: ", err)
+				if err.Error() != "EOF" {
+					break
+				}
+			}
+
+			if n == 0 {
+				break
+			}
+
+			_, err = ffmpegIn.Write(inbuf)
+
+			if err != nil {
+				fmt.Println("Error: ", err)
+				if err.Error() != "EOF" {
+					break
+				}
+			}
+		}
+		err = ffmpegIn.Close()
+
+		if err != nil {
+			fmt.Println("Error: ", err)
+		}
+	}()
+
+	go func() {
+		err := cmd.Start()
+
+		encoder, err := gopus.NewEncoder(48000, 2, gopus.Audio)
+		frameSize := 960
+		maxBytes := 960 * 2 * 2
+
+		if err != nil {
+			fmt.Println("Error: ", err)
+			if err.Error() != "EOF" {
+				return
+			}
+		}
+
+		reader := bufio.NewReader(ffmpegOut)
+
+		for {
+			if player.Paused || player.Skip {
+				break
+			}
+			buffer := make([]byte, 4096)
+
+			n, err := reader.Read(buffer)
+
+			if err != nil {
+				fmt.Println("Error: ", err)
+				if err.Error() != "EOF" {
+					break
+				}
+			}
+
+			if n == 0 {
+				break
+			}
+
+			encbuf := make([]int16, frameSize*2)
+
+			for i := 0; i < maxBytes/2; i++ {
+				encbuf[i] = int16(buffer[i*2]) | int16(buffer[i*2+1])<<8
+			}
+
+			opus, err := encoder.Encode(encbuf, frameSize, maxBytes)
+
+			if err != nil {
+				fmt.Println("Error: ", err)
+				if err.Error() != "EOF" {
+					break
+				}
+			}
+
+			if voice.Ready == false || voice.OpusSend == nil {
+
+				return
+			}
+
+			voice.OpusSend <- opus
+		}
+	}()
+
 }
 
 func handleQueueCommand(s *discordgo.Session, m *discordgo.MessageCreate) {

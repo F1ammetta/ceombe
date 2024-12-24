@@ -76,6 +76,10 @@ func commandHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 		handleDownCommand(s, m)
 
+	} else if strings.HasPrefix(m.Content, config.Discord.Prefix+"tts ") {
+
+		handleTTSCommand(s, m)
+
 	} else if m.Content == config.Discord.Prefix+"queue" || m.Content == config.Discord.Prefix+"q" {
 
 		handleQueueCommand(s, m)
