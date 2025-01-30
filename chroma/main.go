@@ -141,10 +141,20 @@ func main() {
 		return
 	}
 
-	Title := response.Results[0].Recordings[0].Title
-	Artist := response.Results[0].Recordings[0].Artists[0].Name
-	Album := response.Results[0].Recordings[0].ReleaseGroups[0].Title
-	AlbumId := response.Results[0].Recordings[0].ReleaseGroups[0].ID
+	var index int
+	maxScore := 0.0
+
+	for i, result := range response.Results {
+		if result.Score > maxScore {
+			maxScore = result.Score
+			index = i
+		}
+	}
+
+	Title := response.Results[index].Recordings[0].Title
+	Artist := response.Results[index].Recordings[0].Artists[0].Name
+	Album := response.Results[index].Recordings[0].ReleaseGroups[0].Title
+	AlbumId := response.Results[index].Recordings[0].ReleaseGroups[0].ID
 
 	print("Title: " + Title + "\n")
 	print("Artist: " + Artist + "\n")
