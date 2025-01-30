@@ -13,6 +13,43 @@ import (
 	"github.com/bogem/id3v2/v2"
 )
 
+func getBigrams(s string) []string {
+	s = strings.ToLower(s)
+
+	if len(s) < 2 {
+		return nil // Return empty slice if input is too short
+	}
+
+	bigrams := []string{}
+	for i := 0; i < len(s)-1; i++ {
+		bigrams = append(bigrams, s[i:i+2])
+	}
+
+	return bigrams
+}
+
+func rank(str1, str2 string) float64 {
+	pairs1 := getBigrams(str1)
+	pairs2 := getBigrams(str2)
+	union := len(pairs1) + len(pairs2)
+	hitCount := 0
+
+	for _, x := range pairs1 {
+		for _, y := range pairs2 {
+			if x == y {
+				hitCount++
+				break
+			}
+		}
+	}
+
+	if union == 0 {
+		return 0.0
+	}
+
+	return (2.0 * float64(hitCount)) / float64(union)
+}
+
 func GetFingerprint(filePath string) (string, int, error) {
 	execPath, err := exec.LookPath("/usr/bin/fpcalc")
 	if err != nil {
@@ -141,24 +178,38 @@ func main() {
 		return
 	}
 
-	var index int
+	var index1 int
+	var index2 int
 	maxScore := 0.0
+	maxScore2 := 0.0
 
 	for i, result := range response.Results {
+		for j, recording := range result.Recordings {
+			score := rank(recording.Title, filePath)
+
+			if score > maxScore2 {
+				fmt.Println("setting max score")
+				maxScore2 = score
+				index2 = j
+			}
+
+		}
+
 		if result.Score > maxScore {
 			maxScore = result.Score
-			index = i
+			index1 = i
 		}
 	}
 
-	Title := response.Results[index].Recordings[0].Title
-	Artist := response.Results[index].Recordings[0].Artists[0].Name
-	Album := response.Results[index].Recordings[0].ReleaseGroups[0].Title
-	AlbumId := response.Results[index].Recordings[0].ReleaseGroups[0].ID
+	Title := response.Results[index1].Recordings[index2].Title
+	Artist := response.Results[index1].Recordings[index2].Artists[0].Name
+	Album := response.Results[index1].Recordings[index2].ReleaseGroups[0].Title
+	AlbumId := response.Results[index1].Recordings[index2].ReleaseGroups[0].ID
 
-	print("Title: " + Title + "\n")
-	print("Artist: " + Artist + "\n")
-	print("Album: " + Album + "\n")
+	fmt.Println("Title: ", Title)
+	fmt.Println("Artist: ", Artist)
+	fmt.Println("Album: ", Album)
+	fmt.Println("AlbumId: ", AlbumId)
 
 	fmt.Println("getting image")
 	image := GetCoverImage(AlbumId)
