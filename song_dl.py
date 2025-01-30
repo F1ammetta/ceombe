@@ -40,7 +40,6 @@ def rank(str1, str2):
     return (2.0 * hit_count) / union
 
 
-
 done = []
 
 
@@ -48,8 +47,8 @@ def my_hook(d):
     global done
     global done_song_file
     file_name = d["filename"]
-    # file_name = file_name.split("/")[-1]
-    # file_name = ".".join(file_name.split(".")[:-1])
+    file_name = file_name.split("/")[-1]
+    file_name = ".".join(file_name.split(".")[:-1])
     if d["status"] == "finished":
         done.append(file_name)
 
@@ -80,5 +79,17 @@ print("Done downloading!\n")
 print(done)
 for song in done:
     # call ./metadata song to get the metadata of the song
-    subprocess.run(["./chroma/metadata", song])
+    # if ".webm" in song:
+    #     # replace webm with mp3
+    #     song = song.replace(".webm", ".mp3")
 
+    print(song)
+    proc = subprocess.Popen(
+        ["/home/silver/ceombe/chroma/metadata", f'{root}/{song}.mp3'],
+        stdout=subprocess.PIPE, text=True, encoding="utf-8")
+    while True:
+        line = proc.stdout.readline()
+        if not line:
+            break
+        # the real code does filtering here
+        print("test:", line)
