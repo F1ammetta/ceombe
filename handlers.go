@@ -293,6 +293,78 @@ func handleSearchCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 	s.ChannelMessageSend(m.ChannelID, str.String())
 }
 
+func handleYtCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
+	user := m.Author
+
+	voiceState, err := s.State.VoiceState(m.GuildID, user.ID)
+
+	if err != nil {
+		fmt.Println("Error: ", err)
+		return
+	}
+
+	if voiceState == nil {
+		s.ChannelMessageSend(m.ChannelID, "You need to be in a voice channel to use this command.")
+		return
+	}
+
+	chann, err := s.ChannelVoiceJoin(m.GuildID, voiceState.ChannelID, false, true)
+
+	if err != nil {
+		fmt.Println("Error: ", err)
+		return
+	}
+
+	// s.ChannelMessageSend(m.ChannelID, "Joined voice channel.")
+
+	url := strings.TrimPrefix(m.Content, config.Discord.Prefix+"yt ")
+
+	cmd := exec.Command("yt-dlp", "--extract-audio", "--audio-quality", "120", "-f", "bestaudio/best", "-o", "-", url)
+
+	stdout, err := cmd.StdoutPipe()
+
+	if err != nil {
+		fmt.Println("Error: ", err)
+		return
+	}
+
+	go func() {
+		frameSize := 960
+
+		buf := make([]byte, frameSize*2)
+
+		scanner := bufio.NewScanner(stdout)
+
+		for scanner.Scan() {
+			n, err := stdout.Read(buf)
+
+			if err != nil {
+				fmt.Println("Error: ", err)
+				return
+			}
+
+			if n == 0 {
+				break
+			}
+
+			if chann.Ready == false || chann.OpusSend == nil {
+				return
+			}
+
+			chann.OpusSend <- buf
+		}
+
+	}()
+
+	err = cmd.Run()
+
+	if err != nil {
+		fmt.Println("Error: ", err)
+		return
+	}
+
+}
+
 func handlePlayCommand(s *discordgo.Session, m *discordgo.MessageCreate, prefix string) {
 
 	user := m.Author
