@@ -328,40 +328,88 @@ func handleYtCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 		return
 	}
 
+	// pipe yt-dlp into ffmpeg
+
+	ffmpeg_cmd := exec.Command("ffmpeg", "-i", "pipe:0", "-f", "s16le", "-ac", "2", "-ar", "48000", "-application", "lowdelay", "pipe:1")
+
+	ffmpeg_stdout, err := ffmpeg_cmd.StdoutPipe()
+
+	if err != nil {
+		fmt.Println("Error: ", err)
+		return
+	}
+
+	ffmpeg_stdin, err := ffmpeg_cmd.StdinPipe()
+
+	if err != nil {
+		fmt.Println("Error: ", err)
+		return
+	}
+
 	go func() {
-		frameSize := 960
-
-		buf := make([]byte, frameSize*2)
-
+		cmd.Start()
 		scanner := bufio.NewScanner(stdout)
-
 		for scanner.Scan() {
-			n, err := stdout.Read(buf)
+			ffmpeg_stdin.Write(scanner.Bytes())
+		}
+	}()
+
+	go func() {
+		err := ffmpeg_cmd.Start()
+
+		encoder, err := gopus.NewEncoder(48000, 2, gopus.Audio)
+		frameSize := 960
+		maxBytes := 960 * 2 * 2
+
+		if err != nil {
+			fmt.Println("Error: ", err)
+			if err.Error() != "EOF" {
+				return
+			}
+		}
+
+		reader := bufio.NewReader(ffmpeg_stdout)
+
+		for {
+
+			buffer := make([]byte, 4096)
+
+			n, err := reader.Read(buffer)
 
 			if err != nil {
 				fmt.Println("Error: ", err)
-				return
+				if err.Error() != "EOF" {
+					break
+				}
 			}
 
 			if n == 0 {
 				break
 			}
 
+			encbuf := make([]int16, frameSize*2)
+
+			for i := 0; i < maxBytes/2; i++ {
+				encbuf[i] = int16(buffer[i*2]) | int16(buffer[i*2+1])<<8
+			}
+
+			opus, err := encoder.Encode(encbuf, frameSize, maxBytes)
+
+			if err != nil {
+				fmt.Println("Error: ", err)
+				if err.Error() != "EOF" {
+					break
+				}
+			}
+
 			if chann.Ready == false || chann.OpusSend == nil {
+
 				return
 			}
 
-			chann.OpusSend <- buf
+			chann.OpusSend <- opus
 		}
-
 	}()
-
-	err = cmd.Run()
-
-	if err != nil {
-		fmt.Println("Error: ", err)
-		return
-	}
 
 }
 
