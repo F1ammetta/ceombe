@@ -66,7 +66,7 @@ func commandHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 	} else if strings.HasPrefix(m.Content, config.Discord.Prefix+"yt ") {
 
-		handleYTCommand(s, m)
+		handleYtCommand(s, m)
 
 	} else if strings.HasPrefix(m.Content, config.Discord.Prefix+"play ") {
 
