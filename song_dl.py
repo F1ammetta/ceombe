@@ -80,5 +80,11 @@ print("Done downloading!\n")
 print(done)
 for song in done:
     # call ./metadata song to get the metadata of the song
-    subprocess.run(["./chroma/metadata", song])
+    result = subprocess.run(["./chroma/metadata", song], capture_output=True, text=True)
+    if result.returncode != 0:
+        print(f"Error processing file: {song}")
+        print(f"Exit Code: {result.returncode}")
+        print(f"Stdout:\n{result.stdout}")
+        print(f"Stderr:\n{result.stderr}")
+
 

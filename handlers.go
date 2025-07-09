@@ -24,33 +24,9 @@ import (
 )
 
 func handleLeaveCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
-	user := m.Author
-
-	voiceState, err := s.State.VoiceState(m.GuildID, user.ID)
-
-	if err != nil {
-		fmt.Println("Error: ", err)
-		return
-	}
-
-	if voiceState == nil {
-		s.ChannelMessageSend(m.ChannelID, "You need to be in a voice channel to use this command.")
-		return
-	}
-
 	player.Queue = []string{}
-
 	player.Stop = true
-
-	println(len(player.Queue))
-
-	_, err = s.ChannelVoiceJoin(m.GuildID, "", false, true)
-
-	if err != nil {
-		fmt.Println("Error: ", err)
-		return
-	}
-
+	player.Disconnect = true
 	s.ChannelMessageSend(m.ChannelID, "Left voice channel.")
 }
 
@@ -409,6 +385,7 @@ func handlePlayListCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 }
 
 func handlePlayCommand(s *discordgo.Session, m *discordgo.MessageCreate, prefix string) {
+	player.Stop = false
 
 	user := m.Author
 
@@ -619,6 +596,11 @@ func handlePlayCommand(s *discordgo.Session, m *discordgo.MessageCreate, prefix 
 			player.Query = ""
 			player.Position = 0
 			player.Stop = false
+		}
+
+		if player.Disconnect {
+			chann.Disconnect()
+			player.Disconnect = false
 		}
 
 	}()

@@ -38,14 +38,15 @@ type Config struct {
 	Discord Discord
 }
 type Player struct {
-	Playing  string   // Path to the current song
-	Query    string   // Query for the current song
-	Queue    []string // Queue of songs to play
-	Position int64    // Current playback position in bytes
-	Paused   bool     // Indicates whether playback is paused
-	Stop     bool     // Stops playback
-	Loop     bool     // Channel to signal resume
-	Skip     bool     // Indicates whether to skip the current song
+	Playing    string   // Path to the current song
+	Query      string   // Query for the current song
+	Queue      []string // Queue of songs to play
+	Position   int64    // Current playback position in bytes
+	Paused     bool     // Indicates whether playback is paused
+	Stop       bool     // Stops playback
+	Loop       bool     // Channel to signal resume
+	Skip       bool     // Indicates whether to skip the current song
+	Disconnect bool     // Disconnects from voice channel
 }
 
 var config Config
