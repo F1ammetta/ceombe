@@ -6,4 +6,5 @@ config.toml
 auth.toml
 
 ceombe
+chroma/metadata
 venv/
