@@ -7,6 +7,7 @@ import subprocess
 import toml
 import music_tag
 import sys
+import os
 
 nsongs = 0
 root = toml.load("config.toml")["Server"]["music_dir"]
@@ -79,10 +80,13 @@ with YoutubeDL(ydl_opts) as ydl:
 print("Done downloading!\n")
 print(done)
 for song in done:
+    # The postprocessor converts the file to mp3, so we manually update the filename.
+    base, ext = os.path.splitext(song)
+    mp3_song = base + '.mp3'
     # call ./metadata song to get the metadata of the song
-    result = subprocess.run(["./chroma/metadata", song], capture_output=True, text=True)
+    result = subprocess.run(["./chroma/metadata", mp3_song], capture_output=True, text=True)
     if result.returncode != 0:
-        print(f"Error processing file: {song}")
+        print(f"Error processing file: {mp3_song}")
         print(f"Exit Code: {result.returncode}")
         print(f"Stdout:\n{result.stdout}")
         print(f"Stderr:\n{result.stderr}")
