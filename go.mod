@@ -12,10 +12,12 @@ require (
 require (
 	github.com/F1ammetta/go-subsonic v0.0.0-20241219041208-4d7dc5ab06e8
 	github.com/go-tts/tts v1.0.1
+	github.com/lithammer/fuzzysearch v1.1.8
 )
 
 require (
 	github.com/gorilla/websocket v1.4.2 // indirect
-	golang.org/x/crypto v0.0.0-20210421170649-83a5a9bb288b // indirect
+	golang.org/x/crypto v0.0.0-20210921155107-089bfa567519 // indirect
 	golang.org/x/sys v0.7.0 // indirect
+	golang.org/x/text v0.9.0 // indirect
 )

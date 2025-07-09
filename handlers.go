@@ -3,6 +3,10 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"slices"
+	"sort"
+	"sync"
+
 	// "net/http"
 	// "os"
 	"os/exec"
@@ -10,8 +14,11 @@ import (
 
 	// "ceombe/go-subsonic"
 
+	"github.com/F1ammetta/go-subsonic"
 	"github.com/bwmarrin/discordgo"
 	"github.com/go-tts/tts/pkg/speech"
+	"github.com/lithammer/fuzzysearch/fuzzy"
+
 	// "github.com/pelletier/go-toml/v2"
 	"layeh.com/gopus"
 )
@@ -30,6 +37,12 @@ func handleLeaveCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 		s.ChannelMessageSend(m.ChannelID, "You need to be in a voice channel to use this command.")
 		return
 	}
+
+	player.Queue = []string{}
+
+	player.Stop = true
+
+	println(len(player.Queue))
 
 	_, err = s.ChannelVoiceJoin(m.GuildID, "", false, true)
 
@@ -186,6 +199,29 @@ func handleTTSCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 }
 
+func getSongName(str string) string {
+	var name string
+
+	if after, ok := strings.CutPrefix(strings.TrimSpace(str), "id:"); ok {
+		result, err := subsonicClient.GetSong(after)
+		if err != nil {
+			fmt.Println("Error: ", err)
+			return ""
+		}
+		name = result.Artist + " - " + result.Title
+	} else {
+		result, err := subsonicClient.Search3(str, map[string]string{})
+		if err != nil {
+			fmt.Println("Error: ", err)
+			return ""
+		}
+
+		name = result.Song[0].Artist + " - " + result.Song[0].Title
+	}
+
+	return name
+}
+
 func handleQueueCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 	if len(player.Queue) == 0 {
 		s.ChannelMessageSend(m.ChannelID, "Queue is empty.")
@@ -197,7 +233,7 @@ func handleQueueCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 	str.WriteString("```")
 	str.WriteString("Queue:\n")
 	for i, song := range player.Queue {
-		str.WriteString(fmt.Sprintf("%d. %s\n", i+1, song))
+		str.WriteString(fmt.Sprintf("%d. %s\n", i+1, getSongName(song)))
 	}
 	str.WriteString("```")
 
@@ -293,6 +329,85 @@ func handleSearchCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 	s.ChannelMessageSend(m.ChannelID, str.String())
 }
 
+func handleUploadCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
+	var errors []string
+
+	s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Attempting to upload %d Files...", len(m.Attachments)))
+
+	var wg sync.WaitGroup
+	for _, file := range m.Attachments {
+		if !strings.Contains(file.ContentType, "audio") {
+			errors = append(errors, file.Filename)
+			continue
+		}
+
+		// TODO: Spawn goroutine to download
+		wg.Add(1)
+		go downloadFile(file.ProxyURL, &wg)
+
+	}
+
+	wg.Wait()
+
+	errstr := strings.Join(errors, "\n")
+	var succ string
+	if len(errors) == len(m.Attachments) {
+		succ = "Failed to upload files, wrong format: Only audio files are allowed"
+	} else {
+		succ = "Upload Success"
+	}
+	var err string
+	if len(errors) > 0 {
+		err = fmt.Sprintf("```\n%s```", errstr)
+	} else {
+		err = ""
+	}
+
+	s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("%s\n%s", succ, err))
+}
+
+func handlePlayListCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
+	res, err := subsonicClient.GetPlaylists(map[string]string{})
+
+	if err != nil {
+		fmt.Println("Error: ", err)
+		return
+	}
+
+	var titles []string
+
+	for _, pl := range res {
+		titles = append(titles, pl.Name)
+	}
+
+	a := fuzzy.RankFindFold(strings.TrimPrefix(m.Content, "~pl "), titles)
+
+	sort.Sort(a)
+
+	slices.Reverse(a)
+
+	pl, err := subsonicClient.GetPlaylist(res[a[a.Len()-1].OriginalIndex].ID)
+	s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Adding to queue Playlist: %s", pl.Name))
+
+	if err != nil {
+		fmt.Println("Error: ", err)
+		return
+	}
+
+	for _, song := range pl.Entry {
+		player.Queue = append(player.Queue, fmt.Sprintf("id:%s", song.ID))
+	}
+
+	if player.Playing == "" {
+		var newS *discordgo.MessageCreate = m
+		newS.Content = config.Discord.Prefix + "play " + player.Queue[0]
+		player.Queue = player.Queue[1:]
+		player.Position = 0
+		commandHandler(s, newS)
+	}
+
+}
+
 func handlePlayCommand(s *discordgo.Session, m *discordgo.MessageCreate, prefix string) {
 
 	user := m.Author
@@ -320,18 +435,29 @@ func handlePlayCommand(s *discordgo.Session, m *discordgo.MessageCreate, prefix 
 
 	query := strings.TrimPrefix(m.Content, config.Discord.Prefix+prefix)
 
-	result, err := subsonicClient.Search3(query, map[string]string{})
-	if err != nil {
-		fmt.Println("Error: ", err)
-		return
-	}
+	var song *subsonic.Child
+	if after, ok := strings.CutPrefix(strings.TrimSpace(query), "id:"); ok {
+		result, err := subsonicClient.GetSong(after)
+		if err != nil {
+			fmt.Println("Error: ", err)
+			return
+		}
+		song = result
 
-	if len(result.Song) == 0 {
-		s.ChannelMessageSend(m.ChannelID, "No results found.")
-		return
-	}
+	} else {
+		result, err := subsonicClient.Search3(query, map[string]string{})
+		if err != nil {
+			fmt.Println("Error: ", err)
+			return
+		}
 
-	song := result.Song[0]
+		if len(result.Song) == 0 {
+			s.ChannelMessageSend(m.ChannelID, "No results found.")
+			return
+		}
+
+		song = result.Song[0]
+	}
 
 	println("Playing: ", song.Artist, " - ", song.Title)
 	println("Cover art: url", subsonicClient.GetCoverArtUrl(song.CoverArt, map[string]string{}))
@@ -423,7 +549,7 @@ func handlePlayCommand(s *discordgo.Session, m *discordgo.MessageCreate, prefix 
 		var position int64 = player.Position
 
 		for {
-			if player.Paused || player.Skip {
+			if player.Paused || player.Skip || player.Stop {
 				break
 			}
 			buffer := make([]byte, 4096)
@@ -476,7 +602,7 @@ func handlePlayCommand(s *discordgo.Session, m *discordgo.MessageCreate, prefix 
 			s.ChannelMessageSend(m.ChannelID, "Playing next song.")
 			println("Queue: ", player.Queue)
 			var newS *discordgo.MessageCreate = m
-			newS.Content = config.Discord.Prefix + "play" + player.Queue[0]
+			newS.Content = config.Discord.Prefix + "play " + player.Queue[0]
 			player.Queue = player.Queue[1:]
 			player.Position = 0
 			commandHandler(s, newS)
@@ -484,7 +610,7 @@ func handlePlayCommand(s *discordgo.Session, m *discordgo.MessageCreate, prefix 
 		} else if player.Loop {
 			player.Query = ""
 			var newS *discordgo.MessageCreate = m
-			newS.Content = config.Discord.Prefix + "play" + query
+			newS.Content = config.Discord.Prefix + "play " + query
 			player.Position = 0
 			s.ChannelMessageSend(m.ChannelID, "Looping song.")
 			commandHandler(s, newS)
@@ -492,6 +618,7 @@ func handlePlayCommand(s *discordgo.Session, m *discordgo.MessageCreate, prefix 
 		} else {
 			player.Query = ""
 			player.Position = 0
+			player.Stop = false
 		}
 
 	}()

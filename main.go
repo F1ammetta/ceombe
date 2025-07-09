@@ -3,8 +3,13 @@ package main
 import (
 	// "bufio"
 	"fmt"
+	"io"
+	"mime"
 	"net/http"
 	"os"
+	"path"
+	"sync"
+
 	// "os/exec"
 	"strings"
 	"time"
@@ -17,9 +22,10 @@ import (
 )
 
 type Server struct {
-	Url      string
-	Username string
-	Password string
+	Url       string
+	Username  string
+	Password  string
+	Music_dir string
 }
 
 type Discord struct {
@@ -37,6 +43,7 @@ type Player struct {
 	Queue    []string // Queue of songs to play
 	Position int64    // Current playback position in bytes
 	Paused   bool     // Indicates whether playback is paused
+	Stop     bool     // Stops playback
 	Loop     bool     // Channel to signal resume
 	Skip     bool     // Indicates whether to skip the current song
 }
@@ -72,6 +79,14 @@ func commandHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 		handlePlayCommand(s, m, "p")
 
+	} else if strings.HasPrefix(m.Content, config.Discord.Prefix+"pl ") {
+
+		handlePlayListCommand(s, m)
+
+	} else if strings.HasPrefix(m.Content, config.Discord.Prefix+"upload") {
+
+		handleUploadCommand(s, m)
+
 	} else if strings.HasPrefix(m.Content, config.Discord.Prefix+"d ") {
 
 		handleDownCommand(s, m)
@@ -87,6 +102,14 @@ func commandHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
 	} else if m.Content == config.Discord.Prefix+"leave" {
 
 		handleLeaveCommand(s, m)
+
+	} else if m.Content == config.Discord.Prefix+"clear" {
+
+		player.Queue = []string{}
+
+	} else if m.Content == config.Discord.Prefix+"stop" {
+
+		player.Stop = true
 
 	} else if m.Content == config.Discord.Prefix+"join" {
 
@@ -164,6 +187,41 @@ func checkForExit(d *discordgo.Session) {
 	}
 }
 
+func getFilename(resp *http.Response) string {
+	cd := resp.Header.Get("Content-Disposition")
+	if cd != "" {
+		_, params, err := mime.ParseMediaType(cd)
+		if err == nil && params["filename"] != "" {
+			return params["filename"]
+		}
+	}
+
+	return path.Base(resp.Request.URL.Path)
+}
+
+func downloadFile(url string, wg *sync.WaitGroup) {
+	defer wg.Done()
+
+	res, err := http.Get(url)
+
+	if err != nil {
+		return
+	}
+
+	filename := config.Server.Music_dir + "/" + getFilename(res)
+
+	out, err := os.Create(filename)
+	if err != nil {
+		return
+	}
+	defer out.Close()
+
+	_, err = io.Copy(out, res.Body)
+	if err != nil {
+		return
+	}
+}
+
 func main() {
 	config.loadToml()
 
@@ -182,6 +240,8 @@ func main() {
 	}
 
 	defer discord.Close()
+
+	player.Stop = false
 
 	discord.AddHandler(commandHandler)
 
