@@ -363,7 +363,7 @@ func handleDownListCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 		}
 
 		query := song.Artist + " " + song.Title
-		
+
 		result, err := subsonicClient.Search3(query, map[string]string{})
 		if err != nil {
 			fmt.Println("Error searching for song in Subsonic:", err)
@@ -377,7 +377,7 @@ func handleDownListCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 				score := fuzzy.RankMatchFold(query, subsonicSong.Artist+" "+subsonicSong.Title)
 				if score > int(highestScore) {
 					highestScore = float64(score)
-					bestMatch = &result.Song[i]
+					bestMatch = result.Song[i]
 				}
 			}
 			if bestMatch != nil {
