@@ -3,8 +3,10 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"path/filepath"
 	"slices"
 	"sort"
+	"strconv"
 	"sync"
 
 	// "net/http"
@@ -214,6 +216,160 @@ func handleQueueCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 	str.WriteString("```")
 
 	s.ChannelMessageSend(m.ChannelID, str.String())
+}
+
+func GetFingerprint(filePath string) (string, int, error) {
+	execPath, err := exec.LookPath("fpcalc")
+	if err != nil {
+		return "", -1, err
+	}
+
+	cmd := exec.Command(execPath, filePath)
+	output, err := cmd.Output()
+	if err != nil {
+		return "", -1, err
+	}
+
+	str := strings.Split(string(output), "=")
+	if len(str) < 2 {
+		return "", -1, fmt.Errorf("Invalid output")
+	}
+	fingerprint := str[len(str)-1]
+	fingerprint = strings.TrimSpace(fingerprint)
+
+	durations := strings.Split(str[1], "\n")[0]
+	durations = strings.TrimSpace(durations)
+
+	duration, err := strconv.Atoi(durations)
+
+	if err != nil {
+		return "", -1, err
+	}
+
+	return fingerprint, duration, nil
+}
+
+func songInServer(filename string) bool {
+	fingerprint, duration, err := GetFingerprint(filename)
+
+	if err != nil {
+		fmt.Println(err)
+		return false
+	}
+
+	request := AcoustIDRequest{
+		Fingerprint: fingerprint,
+		Duration:    int(duration),
+		ApiKey:      "djeyw3pqpz",
+		Metadata:    "recordings+releasegroups+compress",
+	}
+
+	response := request.Do()
+
+	if len(response.Results) == 0 {
+		fmt.Println("No results found")
+		return false
+	}
+
+	Title := response.Results[0].Recordings[0].Title
+	Artist := response.Results[0].Recordings[0].Artists[0].Name
+
+	query := Artist + " " + Title
+
+	result, err := subsonicClient.Search3(query, map[string]string{})
+	if err != nil {
+		fmt.Println("Error: ", err)
+		return false
+	}
+
+	song := result.Song[0]
+
+	return fuzzy.MatchNormalized(query, song.Artist+" "+song.Title)
+}
+
+func checkSong(url string, wg *sync.WaitGroup, dupes chan<- string) {
+	defer wg.Done()
+
+	cmd := exec.Command("python3", "temp_dl.py", url)
+
+	out, err := cmd.Output()
+
+	if err != nil {
+		fmt.Println("Error: ", err)
+		return
+	}
+
+	filename := string(out)
+
+	if songInServer(filename) {
+		dupes <- url
+	}
+}
+
+func getListSongs(url string) []string {
+
+	return []string{}
+}
+
+func handleDownListCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
+	list_url := strings.TrimSpace(strings.TrimPrefix(m.Content, config.Discord.Prefix+"dl"))
+
+	list := getListSongs(list_url)
+
+	var wg sync.WaitGroup
+	var dupes []string
+	dupes_chan := make(chan string, len(list))
+
+	for _, url := range list {
+		wg.Add(1)
+		go checkSong(url, &wg, dupes_chan)
+	}
+
+	go func() {
+		wg.Wait()
+		close(dupes_chan)
+	}()
+
+	for dupe := range dupes_chan {
+
+		dupes = append(dupes, dupe)
+
+	}
+
+	for _, song := range list {
+		if !slices.Contains(dupes, song) {
+			go download(song, &wg)
+		}
+	}
+
+	wg.Wait()
+}
+
+func download(url string, wg *sync.WaitGroup) {
+	defer wg.Done()
+
+	cmd := exec.Command("python3", "song_dl.py", url)
+
+	stdout, err := cmd.StdoutPipe()
+
+	if err != nil {
+		fmt.Println("Error: ", err)
+		return
+	}
+
+	go func() {
+		scanner := bufio.NewScanner(stdout)
+		for scanner.Scan() {
+			fmt.Println(scanner.Text())
+		}
+	}()
+
+	err = cmd.Run()
+
+	if err != nil {
+		fmt.Println("Error: ", err)
+		return
+	}
 }
 
 func handleDownCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
