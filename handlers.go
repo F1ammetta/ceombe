@@ -215,44 +215,57 @@ func handleQueueCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 	s.ChannelMessageSend(m.ChannelID, str.String())
 }
 
+type YTDLPEntry {
+	URL          string `json:"url"`
+	Title        string `json:"title"`
+	PlaylistTitle string `json:"playlist_title"`
+}
+
 func getPlaylistData(playlistURL string) (string, []string, error) {
-	resp, err := http.Get(playlistURL)
+	cmd := exec.Command("yt-dlp", "--flat-playlist", "--dump-json", playlistURL)
+	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return "", nil, err
+		return "", nil, fmt.Errorf("failed to get stdout pipe: %w", err)
 	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", nil, err
+	if err := cmd.Start(); err != nil {
+		return "", nil, fmt.Errorf("failed to start yt-dlp: %w", err)
 	}
 
-	html := string(body)
-
-	// Regex to find the playlist title
-	titleRegex := regexp.MustCompile(`<title>(.*?) - YouTube</title>`)
-	titleMatch := titleRegex.FindStringSubmatch(html)
 	var playlistTitle string
-	if len(titleMatch) > 1 {
-		playlistTitle = titleMatch[1]
-	} else {
-		playlistTitle = "YouTube Playlist"
-	}
-
-	// Regex to find video URLs
-	urlRegex := regexp.MustCompile(`"url":"/watch\?v=([a-zA-Z0-9_-]+)"`)
-	matches := urlRegex.FindAllStringSubmatch(html, -1)
-
 	var urls []string
 	seen := make(map[string]bool)
-	for _, match := range matches {
-		if len(match) > 1 {
-			videoID := match[1]
-			if !seen[videoID] {
-				urls = append(urls, "https://www.youtube.com/watch?v="+videoID)
-				seen[videoID] = true
+
+	scanner := bufio.NewScanner(stdout)
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		var entry YTDLPEntry
+		if err := json.Unmarshal(line, &entry); err != nil {
+			fmt.Printf("Error unmarshaling yt-dlp output line: %v\n", err)
+			continue
+		}
+
+		if playlistTitle == "" {
+			if entry.PlaylistTitle != "" {
+				playlistTitle = entry.PlaylistTitle
+			} else {
+				playlistTitle = "YouTube Playlist" // Fallback if playlist_title is not available
 			}
 		}
+
+		if entry.URL != "" {
+			if !seen[entry.URL] {
+				urls = append(urls, entry.URL)
+				seen[entry.URL] = true
+			}
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return "", nil, fmt.Errorf("error reading yt-dlp stdout: %w", err)
+	}
+
+	if err := cmd.Wait(); err != nil {
+		return "", nil, fmt.Errorf("yt-dlp command failed: %w", err)
 	}
 
 	return playlistTitle, urls, nil
@@ -271,19 +284,21 @@ func handleDownListCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 	var wg sync.WaitGroup
 	var downloadedSongs []*metadata.Metadata
-	var songsToDownload []string
+	var downloadErrors []error
 
-	songsToDownload = list
+	// Create channels to communicate between goroutines
+	songsChan := make(chan *metadata.Metadata, len(list))
+	errorsChan := make(chan error, len(list))
 
 	// Now, download the non-duplicate songs fully
-	for _, songURL := range songsToDownload {
+	for _, songURL := range list {
 		wg.Add(1)
 		go func(url string) {
 			defer wg.Done()
 			cmd := exec.Command("python3", "song_dl.py", url)
 			out, err := cmd.Output()
 			if err != nil {
-				fmt.Println("Error downloading song:", err)
+				errorsChan <- fmt.Errorf("error downloading song %s: %w", url, err)
 				return
 			}
 			filePath := strings.TrimSpace(string(out))
@@ -312,16 +327,48 @@ func handleDownListCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 					}
 				}
 			}
-			downloadedSongs = append(downloadedSongs, meta)
-			s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Downloaded: %s - %s", meta.Artist, meta.Title))
+			if meta != nil {
+				songsChan <- meta
+				s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Downloaded: %s - %s", meta.Artist, meta.Title))
+			} else {
+				errorsChan <- fmt.Errorf("failed to get any metadata for song %s", url)
+			}
 		}(songURL)
 	}
+
 	wg.Wait()
+	close(songsChan)
+	close(errorsChan)
+
+	for song := range songsChan {
+		downloadedSongs = append(downloadedSongs, song)
+	}
+
+	for err := range errorsChan {
+		downloadErrors = append(downloadErrors, err)
+	}
+
+	if len(downloadErrors) > 0 {
+		var errorMsgs []string
+		for _, err := range downloadErrors {
+			errorMsgs = append(errorMsgs, err.Error())
+		}
+		s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Errors during download: %s", strings.Join(errorMsgs, "; ")))
+	}
 
 	// Get song IDs from subsonic
 	var songIDs []string
 	for _, song := range downloadedSongs {
+		if song == nil {
+			fmt.Println("Skipping nil song metadata.")
+			continue
+		}
+
 		query := song.Artist + " " + song.Title
+		if song.Album != "Unknown Album" && song.Album != "" {
+			query += " " + song.Album
+		}
+
 		result, err := subsonicClient.Search3(query, map[string]string{})
 		if err != nil {
 			fmt.Println("Error searching for song in Subsonic:", err)
@@ -329,16 +376,26 @@ func handleDownListCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 		}
 		if len(result.Song) > 0 {
 			// Fuzzy find the best match from the search results
-			var bestMatch subsonic.Child
-			highestScore := 0.0
-			for _, subsonicSong := range result.Song {
-				score := fuzzy.RankMatchFold(query, subsonicSong.Artist+" "+subsonicSong.Title)
-				if score > int(highestScore) {
-					highestScore = float64(score)
-					bestMatch = *subsonicSong
+			var bestMatch *subsonic.Child
+			highestScore := -1 // Initialize with a score that will always be beaten by a valid match
+			for i, subsonicSong := range result.Song {
+				currentScore := fuzzy.RankMatchFold(query, subsonicSong.Artist+" "+subsonicSong.Title)
+				if subsonicSong.Album != "" && song.Album != "" {
+					currentScore += fuzzy.RankMatchFold(song.Album, subsonicSong.Album) // Add album match score
+				}
+
+				if currentScore > highestScore {
+					highestScore = currentScore
+					bestMatch = &result.Song[i] // Store pointer to the best match
 				}
 			}
-			songIDs = append(songIDs, bestMatch.ID)
+			if bestMatch != nil {
+				songIDs = append(songIDs, bestMatch.ID)
+			} else {
+				fmt.Printf("Downloaded song \"%s - %s\" but no suitable match found in Subsonic.\n", song.Artist, song.Title)
+			}
+		} else {
+			fmt.Printf("Downloaded song \"%s - %s\" but no results found in Subsonic for query \"%s\".\n", song.Artist, song.Title, query)
 		}
 	}
 
