@@ -2,11 +2,9 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"os/exec"
-	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -215,9 +213,9 @@ func handleQueueCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 	s.ChannelMessageSend(m.ChannelID, str.String())
 }
 
-type YTDLPEntry {
-	URL          string `json:"url"`
-	Title        string `json:"title"`
+type YTDLPEntry struct {
+	URL           string `json:"url"`
+	Title         string `json:"title"`
 	PlaylistTitle string `json:"playlist_title"`
 }
 
@@ -386,7 +384,7 @@ func handleDownListCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 				if currentScore > highestScore {
 					highestScore = currentScore
-					bestMatch = &result.Song[i] // Store pointer to the best match
+					bestMatch = result.Song[i] // Store pointer to the best match
 				}
 			}
 			if bestMatch != nil {
