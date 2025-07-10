@@ -294,11 +294,15 @@ func handleDownListCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 			meta, err := metadata.GetMetadata(filePath)
 			if err != nil {
-				fmt.Println("Error getting metadata:", err)
-				return
+				fmt.Println("AcoustID metadata failed, falling back to file tags:", err)
+				meta, err = metadata.ReadTagsFromFile(filePath)
+				if err != nil {
+					fmt.Println("Failed to read tags from file:", err)
+					return // If we can't get any metadata, we have to skip it
+				}
 			}
 			downloadedSongs = append(downloadedSongs, meta)
-			s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Downloaded and tagged: %s - %s", meta.Artist, meta.Title))
+			s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Downloaded: %s - %s", meta.Artist, meta.Title))
 		}(songURL)
 	}
 	wg.Wait()
@@ -313,7 +317,17 @@ func handleDownListCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 			continue
 		}
 		if len(result.Song) > 0 {
-			songIDs = append(songIDs, result.Song[0].ID)
+			// Fuzzy find the best match from the search results
+			var bestMatch subsonic.Child
+			highestScore := 0.0
+			for _, subsonicSong := range result.Song {
+				score := fuzzy.Ratio(query, subsonicSong.Artist+" "+subsonicSong.Title)
+				if score > int(highestScore) {
+					highestScore = float64(score)
+					bestMatch = subsonicSong
+				}
+			}
+			songIDs = append(songIDs, bestMatch.ID)
 		}
 	}
 

@@ -265,3 +265,17 @@ func GetMetadata(filePath string) (*Metadata, error) {
 
 	return nil, fmt.Errorf("no results with complete metadata found")
 }
+
+func ReadTagsFromFile(filePath string) (*Metadata, error) {
+	tag, err := id3v2.Open(filePath, id3v2.Options{Parse: true})
+	if err != nil {
+		return nil, fmt.Errorf("failed to open file to read tags: %w", err)
+	}
+	defer tag.Close()
+
+	return &Metadata{
+		Title:  tag.Title(),
+		Artist: tag.Artist(),
+		Album:  tag.Album(),
+	}, nil
+}
