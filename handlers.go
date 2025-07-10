@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -265,6 +266,8 @@ func handleDownListCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 		s.ChannelMessageSend(m.ChannelID, "Error getting playlist data.")
 		return
 	}
+
+	s.ChannelMessageSend(m.ChannelID, "Downloading Playlist: "+playlistTitle+" with "+strconv.Itoa(len(list))+" songs")
 
 	var wg sync.WaitGroup
 	var downloadedSongs []*metadata.Metadata
