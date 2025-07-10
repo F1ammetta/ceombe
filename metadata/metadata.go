@@ -133,8 +133,7 @@ func GetFingerprint(filePath string) (string, int, error) {
 	fingerprint := str[len(str)-1]
 	fingerprint = strings.TrimSpace(fingerprint)
 
-	durations := strings.Split(str[1], "
-")[0]
+	durations := strings.Split(str[1], "\n")[0]
 	durations = strings.TrimSpace(durations)
 
 	duration, err := strconv.Atoi(durations)
@@ -261,3 +260,4 @@ func GetMetadata(filePath string) (*Metadata, error) {
 		Album:  Album,
 	}, nil
 }
+

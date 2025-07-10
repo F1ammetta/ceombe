@@ -5,13 +5,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"regexp"
-	slices
-	sort
-	"strconv"
+	"slices"
+	"sort"
 	"strings"
 	"sync"
 
@@ -279,49 +276,8 @@ func handleDownListCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 	var wg sync.WaitGroup
 	var downloadedSongs []*metadata.Metadata
 	var songsToDownload []string
-	var dupes []string
 
-	// First, check for duplicates using snippets
-	for _, songURL := range list {
-		wg.Add(1)
-		go func(url string) {
-			defer wg.Done()
-			cmd := exec.Command("python3", "temp_dl.py", url)
-			out, err := cmd.Output()
-			if err != nil {
-				fmt.Println("Error downloading snippet:", err)
-				return
-			}
-			snippetPath := strings.TrimSpace(string(out))
-			defer os.Remove(snippetPath) // Clean up the snippet
-
-			meta, err := metadata.GetMetadata(snippetPath)
-			if err != nil {
-				fmt.Println("Error getting metadata for snippet:", err)
-				return
-			}
-
-			query := meta.Artist + " " + meta.Title
-			result, err := subsonicClient.Search3(query, map[string]string{})
-			if err != nil {
-				fmt.Println("Error searching for song in Subsonic:", err)
-			}
-
-			isDupe := false
-			if result != nil && len(result.Song) > 0 {
-				if fuzzy.MatchNormalized(query, result.Song[0].Artist+" "+result.Song[0].Title) {
-					isDupe = true
-				}
-			}
-
-			if isDupe {
-				dupes = append(dupes, url)
-			} else {
-				songsToDownload = append(songsToDownload, url)
-			}
-		}(songURL)
-	}
-	wg.Wait()
+	songsToDownload = list
 
 	// Now, download the non-duplicate songs fully
 	for _, songURL := range songsToDownload {
@@ -402,9 +358,6 @@ func handleDownListCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 		s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Successfully created playlist '%s' with %d new songs.", playlistTitle, len(songIDs)))
 	}
 
-	if len(dupes) > 0 {
-		s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Skipped %d duplicate songs.", len(dupes)))
-	}
 }
 
 func handleDownCommand(s *discordgo.Session, m *discordgo.MessageCreate) {

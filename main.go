@@ -88,6 +88,10 @@ func commandHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 		handleUploadCommand(s, m)
 
+	} else if strings.HasPrefix(m.Content, config.Discord.Prefix+"dl ") {
+
+		handleDownListCommand(s, m)
+
 	} else if strings.HasPrefix(m.Content, config.Discord.Prefix+"d ") {
 
 		handleDownCommand(s, m)
