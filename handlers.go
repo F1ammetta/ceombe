@@ -3,25 +3,24 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"os/exec"
 	"path/filepath"
-	"slices"
-	"sort"
+	"regexp"
+	slices
+	sort
 	"strconv"
+	"strings"
 	"sync"
 
-	// "net/http"
-	// "os"
-	"os/exec"
-	"strings"
-
-	// "ceombe/go-subsonic"
+	"ceombe/metadata"
 
 	"github.com/F1ammetta/go-subsonic"
 	"github.com/bwmarrin/discordgo"
 	"github.com/go-tts/tts/pkg/speech"
 	"github.com/lithammer/fuzzysearch/fuzzy"
-
-	// "github.com/pelletier/go-toml/v2"
 	"layeh.com/gopus"
 )
 
@@ -218,157 +217,193 @@ func handleQueueCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 	s.ChannelMessageSend(m.ChannelID, str.String())
 }
 
-func GetFingerprint(filePath string) (string, int, error) {
-	execPath, err := exec.LookPath("fpcalc")
-	if err != nil {
-		return "", -1, err
-	}
-
-	cmd := exec.Command(execPath, filePath)
-	output, err := cmd.Output()
-	if err != nil {
-		return "", -1, err
-	}
-
-	str := strings.Split(string(output), "=")
-	if len(str) < 2 {
-		return "", -1, fmt.Errorf("Invalid output")
-	}
-	fingerprint := str[len(str)-1]
-	fingerprint = strings.TrimSpace(fingerprint)
-
-	durations := strings.Split(str[1], "\n")[0]
-	durations = strings.TrimSpace(durations)
-
-	duration, err := strconv.Atoi(durations)
-
-	if err != nil {
-		return "", -1, err
-	}
-
-	return fingerprint, duration, nil
-}
-
-func songInServer(filename string) bool {
-	fingerprint, duration, err := GetFingerprint(filename)
-
-	if err != nil {
-		fmt.Println(err)
-		return false
-	}
-
-	request := AcoustIDRequest{
-		Fingerprint: fingerprint,
-		Duration:    int(duration),
-		ApiKey:      "djeyw3pqpz",
-		Metadata:    "recordings+releasegroups+compress",
-	}
-
-	response := request.Do()
-
-	if len(response.Results) == 0 {
-		fmt.Println("No results found")
-		return false
-	}
-
-	Title := response.Results[0].Recordings[0].Title
-	Artist := response.Results[0].Recordings[0].Artists[0].Name
-
-	query := Artist + " " + Title
-
-	result, err := subsonicClient.Search3(query, map[string]string{})
-	if err != nil {
-		fmt.Println("Error: ", err)
-		return false
-	}
-
-	song := result.Song[0]
-
-	return fuzzy.MatchNormalized(query, song.Artist+" "+song.Title)
-}
-
-func checkSong(url string, wg *sync.WaitGroup, dupes chan<- string) {
-	defer wg.Done()
-
-	cmd := exec.Command("python3", "temp_dl.py", url)
-
-	out, err := cmd.Output()
-
-	if err != nil {
-		fmt.Println("Error: ", err)
-		return
-	}
-
-	filename := string(out)
-
-	if songInServer(filename) {
-		dupes <- url
-	}
-}
-
 func getListSongs(url string) []string {
+	// This is a placeholder, the user mentioned it's not implemented yet.
+	// In a real scenario, we would use a library to extract urls from a playlist.
+	// For now, I'll return a dummy list for testing.
+	return []string{url}
+}
 
-	return []string{}
+func getPlaylistData(playlistURL string) (string, []string, error) {
+	resp, err := http.Get(playlistURL)
+	if err != nil {
+		return "", nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", nil, err
+	}
+
+	html := string(body)
+
+	// Regex to find the playlist title
+	titleRegex := regexp.MustCompile(`<title>(.*?) - YouTube</title>`)
+	titleMatch := titleRegex.FindStringSubmatch(html)
+	var playlistTitle string
+	if len(titleMatch) > 1 {
+		playlistTitle = titleMatch[1]
+	} else {
+		playlistTitle = "YouTube Playlist"
+	}
+
+	// Regex to find video URLs
+	urlRegex := regexp.MustCompile(`"url":"/watch\?v=([a-zA-Z0-9_-]+)"`)
+	matches := urlRegex.FindAllStringSubmatch(html, -1)
+
+	var urls []string
+	seen := make(map[string]bool)
+	for _, match := range matches {
+		if len(match) > 1 {
+			videoID := match[1]
+			if !seen[videoID] {
+				urls = append(urls, "https://www.youtube.com/watch?v="+videoID)
+				seen[videoID] = true
+			}
+		}
+	}
+
+	return playlistTitle, urls, nil
 }
 
 func handleDownListCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 	list_url := strings.TrimSpace(strings.TrimPrefix(m.Content, config.Discord.Prefix+"dl"))
 
-	list := getListSongs(list_url)
+	playlistTitle, list, err := getPlaylistData(list_url)
+	if err != nil {
+		s.ChannelMessageSend(m.ChannelID, "Error getting playlist data.")
+		return
+	}
 
 	var wg sync.WaitGroup
+	var downloadedSongs []*metadata.Metadata
+	var songsToDownload []string
 	var dupes []string
-	dupes_chan := make(chan string, len(list))
 
-	for _, url := range list {
+	// First, check for duplicates using snippets
+	for _, songURL := range list {
 		wg.Add(1)
-		go checkSong(url, &wg, dupes_chan)
+		go func(url string) {
+			defer wg.Done()
+			cmd := exec.Command("python3", "temp_dl.py", url)
+			out, err := cmd.Output()
+			if err != nil {
+				fmt.Println("Error downloading snippet:", err)
+				return
+			}
+			snippetPath := strings.TrimSpace(string(out))
+			defer os.Remove(snippetPath) // Clean up the snippet
+
+			meta, err := metadata.GetMetadata(snippetPath)
+			if err != nil {
+				fmt.Println("Error getting metadata for snippet:", err)
+				return
+			}
+
+			query := meta.Artist + " " + meta.Title
+			result, err := subsonicClient.Search3(query, map[string]string{})
+			if err != nil {
+				fmt.Println("Error searching for song in Subsonic:", err)
+			}
+
+			isDupe := false
+			if result != nil && len(result.Song) > 0 {
+				if fuzzy.MatchNormalized(query, result.Song[0].Artist+" "+result.Song[0].Title) {
+					isDupe = true
+				}
+			}
+
+			if isDupe {
+				dupes = append(dupes, url)
+			} else {
+				songsToDownload = append(songsToDownload, url)
+			}
+		}(songURL)
 	}
-
-	go func() {
-		wg.Wait()
-		close(dupes_chan)
-	}()
-
-	for dupe := range dupes_chan {
-
-		dupes = append(dupes, dupe)
-
-	}
-
-	for _, song := range list {
-		if !slices.Contains(dupes, song) {
-			go download(song, &wg)
-		}
-	}
-
 	wg.Wait()
-}
 
-func download(url string, wg *sync.WaitGroup) {
-	defer wg.Done()
+	// Now, download the non-duplicate songs fully
+	for _, songURL := range songsToDownload {
+		wg.Add(1)
+		go func(url string) {
+			defer wg.Done()
+			cmd := exec.Command("python3", "song_dl.py", url)
+			out, err := cmd.Output()
+			if err != nil {
+				fmt.Println("Error downloading song:", err)
+				return
+			}
+			filePath := strings.TrimSpace(string(out))
 
-	cmd := exec.Command("python3", "song_dl.py", url)
+			meta, err := metadata.GetMetadata(filePath)
+			if err != nil {
+				fmt.Println("Error getting metadata:", err)
+				return
+			}
+			downloadedSongs = append(downloadedSongs, meta)
+			s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Downloaded and tagged: %s - %s", meta.Artist, meta.Title))
+		}(songURL)
+	}
+	wg.Wait()
 
-	stdout, err := cmd.StdoutPipe()
-
-	if err != nil {
-		fmt.Println("Error: ", err)
-		return
+	// Get song IDs from subsonic
+	var songIDs []string
+	for _, song := range downloadedSongs {
+		query := song.Artist + " " + song.Title
+		result, err := subsonicClient.Search3(query, map[string]string{})
+		if err != nil {
+			fmt.Println("Error searching for song in Subsonic:", err)
+			continue
+		}
+		if len(result.Song) > 0 {
+			songIDs = append(songIDs, result.Song[0].ID)
+		}
 	}
 
-	go func() {
-		scanner := bufio.NewScanner(stdout)
-		for scanner.Scan() {
-			fmt.Println(scanner.Text())
+	// Create playlist
+	if len(songIDs) > 0 {
+		// Create the playlist with the first song
+		err := subsonicClient.CreatePlaylist(map[string]string{
+			"name":   playlistTitle,
+			"songId": songIDs[0],
+		})
+		if err != nil {
+			s.ChannelMessageSend(m.ChannelID, "Error creating playlist.")
+			return
 		}
-	}()
 
-	err = cmd.Run()
+		// Get the new playlist's ID
+		pls, err := subsonicClient.GetPlaylists(map[string]string{})
+		if err != nil {
+			s.ChannelMessageSend(m.ChannelID, "Could not retrieve playlists to find new playlist ID.")
+			return
+		}
+		var newPlaylistID string
+		for _, pl := range pls {
+			if pl.Name == playlistTitle {
+				newPlaylistID = pl.ID
+				break
+			}
+		}
 
-	if err != nil {
-		fmt.Println("Error: ", err)
-		return
+		// Add the rest of the songs
+		if len(songIDs) > 1 {
+			for _, songID := range songIDs[1:] {
+				err := subsonicClient.UpdatePlaylist(newPlaylistID, map[string]string{
+					"songIdToAdd": songID,
+				})
+				if err != nil {
+					fmt.Printf("Error adding song %s to playlist %s: %s\n", songID, newPlaylistID, err)
+				}
+			}
+		}
+
+		s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Successfully created playlist '%s' with %d new songs.", playlistTitle, len(songIDs)))
+	}
+
+	if len(dupes) > 0 {
+		s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Skipped %d duplicate songs.", len(dupes)))
 	}
 }
 
@@ -378,29 +413,22 @@ func handleDownCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 	s.ChannelMessageSend(m.ChannelID, "Downloading song...")
 
 	cmd := exec.Command("python3", "song_dl.py", url)
-
-	stdout, err := cmd.StdoutPipe()
-
+	out, err := cmd.Output()
 	if err != nil {
-		fmt.Println("Error: ", err)
+		fmt.Println("Error downloading song:", err)
+		s.ChannelMessageSend(m.ChannelID, "Error downloading song.")
+		return
+	}
+	filePath := strings.TrimSpace(string(out))
+
+	meta, err := metadata.GetMetadata(filePath)
+	if err != nil {
+		fmt.Println("Error getting metadata:", err)
+		s.ChannelMessageSend(m.ChannelID, "Downloaded song, but failed to get metadata.")
 		return
 	}
 
-	go func() {
-		scanner := bufio.NewScanner(stdout)
-		for scanner.Scan() {
-			fmt.Println(scanner.Text())
-		}
-	}()
-
-	err = cmd.Run()
-
-	if err != nil {
-		fmt.Println("Error: ", err)
-		return
-	}
-
-	s.ChannelMessageSend(m.ChannelID, "Downloaded song.")
+	s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Downloaded and tagged: %s - %s", meta.Artist, meta.Title))
 
 }
 

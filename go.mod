@@ -6,13 +6,11 @@ require (
 	// github.com/delucks/go-subsonic v0.0.0-20240806025900-2a743ec36238
 	github.com/bwmarrin/discordgo v0.28.1
 	github.com/pelletier/go-toml/v2 v2.2.3
-	layeh.com/gopus v0.0.0-20210501142526-1ee02d434e32
 )
 
 require (
 	github.com/F1ammetta/go-subsonic v0.0.0-20241219041208-4d7dc5ab06e8
-	github.com/go-tts/tts v1.0.1
-	github.com/lithammer/fuzzysearch v1.1.8
+	github.com/bogem/id3v2/v2 v2.1.4
 )
 
 require (
