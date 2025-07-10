@@ -290,8 +290,23 @@ func handleDownListCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 				fmt.Println("AcoustID metadata failed, falling back to file tags:", err)
 				meta, err = metadata.ReadTagsFromFile(filePath)
 				if err != nil {
-					fmt.Println("Failed to read tags from file:", err)
-					return // If we can't get any metadata, we have to skip it
+					fmt.Println("Failed to read tags from file, attempting to parse from filename:", err)
+					// Fallback to parsing from filename
+					fileName := strings.TrimSuffix(filePath, ".mp3") // Assuming .mp3 extension
+					parts := strings.Split(fileName, " - ")
+					if len(parts) >= 2 {
+						meta = &metadata.Metadata{
+							Title:  strings.TrimSpace(parts[0]),
+							Artist: strings.TrimSpace(parts[1]),
+							Album:  "Unknown Album", // Placeholder
+						}
+					} else {
+						meta = &metadata.Metadata{
+							Title:  fileName,
+							Artist: "Unknown Artist",
+							Album:  "Unknown Album",
+						}
+					}
 				}
 			}
 			downloadedSongs = append(downloadedSongs, meta)
