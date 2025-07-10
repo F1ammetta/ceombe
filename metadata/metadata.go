@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"os/exec"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -44,12 +45,6 @@ type CoverArtImage struct {
 // "large" and "small", "250", "500" and "1200".
 type ThumbnailMap map[string]string
 
-func check(err error) {
-	if err != nil {
-		panic(err)
-	}
-}
-
 type AcoustIDRequest struct {
 	Fingerprint string `json:"fingerprint"`
 	Duration    int    `json:"duration"`
@@ -86,31 +81,34 @@ type AcoustIDResponse struct {
 	Status  string   `json:"status"`
 }
 
-func (a *AcoustIDRequest) Do() AcoustIDResponse {
+func (a *AcoustIDRequest) Do() (*AcoustIDResponse, error) {
 	client := http.Client{}
 	response, err := client.PostForm("https://api.acoustid.org/v2/lookup", a.PostValues())
-	check(err)
+	if err != nil {
+		return nil, err
+	}
 	defer response.Body.Close()
 
 	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		return nil, err
+	}
 
-	aidResp := AcoustIDResponse{}
-	err = json.Unmarshal(body, &aidResp)
-	check(err)
+	var aidResp AcoustIDResponse
+	if err := json.Unmarshal(body, &aidResp); err != nil {
+		return nil, err
+	}
 
-	return aidResp
+	return &aidResp, nil
 }
 
 func (a *AcoustIDRequest) PostValues() url.Values {
-	query := fmt.Sprintf(
+	values, _ := url.ParseQuery(fmt.Sprintf(
 		"client=%s&duration=%d&meta=%s&fingerprint=%s",
 		a.ApiKey,
 		a.Duration,
 		a.Metadata,
-		a.Fingerprint)
-
-	values, err := url.ParseQuery(query)
-	check(err)
+		a.Fingerprint))
 	return values
 }
 
@@ -145,55 +143,49 @@ func GetFingerprint(filePath string) (string, int, error) {
 	return fingerprint, duration, nil
 }
 
-func GetCoverImage(albumId string) []byte {
-	// fetch cover image
+func GetCoverImage(albumId string) ([]byte, error) {
 	res, err := http.Get("https://coverartarchive.org/release-group/" + albumId)
 	if err != nil {
-		fmt.Println(err)
-		return nil
+		return nil, err
 	}
 	defer res.Body.Close()
 
-	// print body
+	if res.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("cover art not found: status code %d", res.StatusCode)
+	}
+
 	resBody, err := io.ReadAll(res.Body)
 	if err != nil {
-		fmt.Println(err)
-		return nil
+		return nil, err
 	}
 
 	var data CoverArtInfo
-
-	err = json.Unmarshal(resBody, &data)
-
-	if err != nil {
-		fmt.Println(err)
-		return nil
+	if err := json.Unmarshal(resBody, &data); err != nil {
+		return nil, err
 	}
 
 	if len(data.Images) == 0 {
-		fmt.Println("No cover image found")
-		return nil
+		return nil, fmt.Errorf("no cover image found in response")
 	}
 
-	image_url := data.Images[0].Thumbnails["1200"]
+	imageURL := ""
+	if val, ok := data.Images[0].Thumbnails["1200"]; ok {
+		imageURL = val
+	} else if val, ok := data.Images[0].Thumbnails["large"]; ok {
+		imageURL = val
+	} else if val, ok := data.Images[0].Thumbnails["500"]; ok {
+		imageURL = val
+	} else {
+		return nil, fmt.Errorf("no suitable thumbnail found")
+	}
 
-	// get image data and return
-	res, err = http.Get(image_url)
+	res, err = http.Get(imageURL)
 	if err != nil {
-		fmt.Println(err)
-		return nil
+		return nil, err
 	}
-
 	defer res.Body.Close()
 
-	imageData, err := io.ReadAll(res.Body)
-
-	if err != nil {
-		fmt.Println(err)
-		return nil
-	}
-
-	return imageData
+	return io.ReadAll(res.Body)
 }
 
 type Metadata struct {
@@ -205,59 +197,71 @@ type Metadata struct {
 func GetMetadata(filePath string) (*Metadata, error) {
 	fingerprint, duration, err := GetFingerprint(filePath)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error getting fingerprint: %w", err)
 	}
 
 	request := AcoustIDRequest{
 		Fingerprint: fingerprint,
 		Duration:    int(duration),
-		ApiKey:      "djeyw3pqpz",
+		ApiKey:      "djeyw3pqpz", // TODO: Move to config
 		Metadata:    "recordings+releasegroups+compress",
 	}
 
-	response := request.Do()
+	response, err := request.Do()
+	if err != nil {
+		return nil, fmt.Errorf("error from AcoustID: %w", err)
+	}
 
 	if len(response.Results) == 0 {
-		return nil, fmt.Errorf("No results found")
+		return nil, fmt.Errorf("no results found from AcoustID")
 	}
 
-	rec := response.Results[0].Recordings[0]
-	Title := rec.Title
-	Artist := rec.Artists[0].Name
-	Album := rec.ReleaseGroups[0].Title
-	AlbumId := rec.ReleaseGroups[0].ID
+	sort.SliceStable(response.Results, func(i, j int) bool {
+		return response.Results[i].Score > response.Results[j].Score
+	})
 
-	image := GetCoverImage(AlbumId)
+	for _, result := range response.Results {
+		if len(result.Recordings) > 0 && len(result.Recordings[0].Artists) > 0 && len(result.Recordings[0].ReleaseGroups) > 0 {
+			rec := result.Recordings[0]
+			Title := rec.Title
+			Artist := rec.Artists[0].Name
+			Album := rec.ReleaseGroups[0].Title
+			AlbumId := rec.ReleaseGroups[0].ID
 
-	tag, err := id3v2.Open(filePath, id3v2.Options{Parse: true})
-	if err != nil {
-		return nil, err
-	}
-	defer tag.Close()
+			image, _ := GetCoverImage(AlbumId)
 
-	tag.SetTitle(Title)
-	tag.SetArtist(Artist)
-	tag.SetAlbum(Album)
+			tag, err := id3v2.Open(filePath, id3v2.Options{Parse: true})
+			if err != nil {
+				return nil, fmt.Errorf("failed to open file for tagging: %w", err)
+			}
+			defer tag.Close()
 
-	if image != nil {
-		pic := id3v2.PictureFrame{
-			Encoding:    id3v2.EncodingUTF8,
-			MimeType:    "image/jpeg",
-			PictureType: id3v2.PTFrontCover,
-			Description: "Front cover",
-			Picture:     image,
+			tag.SetTitle(Title)
+			tag.SetArtist(Artist)
+			tag.SetAlbum(Album)
+
+			if image != nil {
+				pic := id3v2.PictureFrame{
+					Encoding:    id3v2.EncodingUTF8,
+					MimeType:    "image/jpeg",
+					PictureType: id3v2.PTFrontCover,
+					Description: "Front cover",
+					Picture:     image,
+				}
+				tag.AddAttachedPicture(pic)
+			}
+
+			if err = tag.Save(); err != nil {
+				return nil, fmt.Errorf("failed to save tags: %w", err)
+			}
+
+			return &Metadata{
+				Title:  Title,
+				Artist: Artist,
+				Album:  Album,
+			}, nil
 		}
-		tag.AddAttachedPicture(pic)
 	}
 
-	if err = tag.Save(); err != nil {
-		return nil, err
-	}
-
-	return &Metadata{
-		Title:  Title,
-		Artist: Artist,
-		Album:  Album,
-	}, nil
+	return nil, fmt.Errorf("no results with complete metadata found")
 }
-
