@@ -214,13 +214,6 @@ func handleQueueCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 	s.ChannelMessageSend(m.ChannelID, str.String())
 }
 
-func getListSongs(url string) []string {
-	// This is a placeholder, the user mentioned it's not implemented yet.
-	// In a real scenario, we would use a library to extract urls from a playlist.
-	// For now, I'll return a dummy list for testing.
-	return []string{url}
-}
-
 func getPlaylistData(playlistURL string) (string, []string, error) {
 	resp, err := http.Get(playlistURL)
 	if err != nil {
@@ -321,10 +314,10 @@ func handleDownListCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 			var bestMatch subsonic.Child
 			highestScore := 0.0
 			for _, subsonicSong := range result.Song {
-				score := fuzzy.Ratio(query, subsonicSong.Artist+" "+subsonicSong.Title)
+				score := fuzzy.RankMatchFold(query, subsonicSong.Artist+" "+subsonicSong.Title)
 				if score > int(highestScore) {
 					highestScore = float64(score)
-					bestMatch = subsonicSong
+					bestMatch = *subsonicSong
 				}
 			}
 			songIDs = append(songIDs, bestMatch.ID)
