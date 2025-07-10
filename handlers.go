@@ -296,7 +296,7 @@ func handleDownListCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 			cmd := exec.Command("python3", "song_dl.py", url)
 			out, err := cmd.Output()
 			if err != nil {
-				errorsChan <- fmt.Errorf("error downloading song %s: %w", url, err)
+				errorsChan <- fmt.Errorf("error downloading song: %w", err)
 				return
 			}
 			filePath := strings.TrimSpace(string(out))
@@ -363,10 +363,7 @@ func handleDownListCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 		}
 
 		query := song.Artist + " " + song.Title
-		if song.Album != "Unknown Album" && song.Album != "" {
-			query += " " + song.Album
-		}
-
+		
 		result, err := subsonicClient.Search3(query, map[string]string{})
 		if err != nil {
 			fmt.Println("Error searching for song in Subsonic:", err)
@@ -375,16 +372,12 @@ func handleDownListCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 		if len(result.Song) > 0 {
 			// Fuzzy find the best match from the search results
 			var bestMatch *subsonic.Child
-			highestScore := -1 // Initialize with a score that will always be beaten by a valid match
+			highestScore := 0.0
 			for i, subsonicSong := range result.Song {
-				currentScore := fuzzy.RankMatchFold(query, subsonicSong.Artist+" "+subsonicSong.Title)
-				if subsonicSong.Album != "" && song.Album != "" {
-					currentScore += fuzzy.RankMatchFold(song.Album, subsonicSong.Album) // Add album match score
-				}
-
-				if currentScore > highestScore {
-					highestScore = currentScore
-					bestMatch = result.Song[i] // Store pointer to the best match
+				score := fuzzy.RankMatchFold(query, subsonicSong.Artist+" "+subsonicSong.Title)
+				if score > int(highestScore) {
+					highestScore = float64(score)
+					bestMatch = &result.Song[i]
 				}
 			}
 			if bestMatch != nil {
