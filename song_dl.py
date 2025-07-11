@@ -1,58 +1,17 @@
 #!/usr/bin/python3
 from yt_dlp import YoutubeDL
-import requests
-import re
-import threading
-import subprocess
 import toml
-import music_tag
 import sys
 import os
 
-nsongs = 0
 root = toml.load("config.toml")["Server"]["music_dir"]
-authfile = toml.load("auth.toml")
-client_id = authfile["spotify"]["client_id"]
-client_secret = authfile["spotify"]["client_secret"]
-
-
-def get_bigrams(string):
-    """
-    Take a string and return a list of bigrams.
-    """
-    s = string.lower()
-    return [s[i: i + 2] for i in list(range(len(s) - 1))]
-
-
-def rank(str1, str2):
-    """
-    Perform bigram comparison between two strings
-    and return a percentage match in decimal form.
-    """
-    pairs1 = get_bigrams(str1)
-    pairs2 = get_bigrams(str2)
-    union = len(pairs1) + len(pairs2)
-    hit_count = 0
-    for x in pairs1:
-        for y in pairs2:
-            if x == y:
-                hit_count += 1
-                break
-    return (2.0 * hit_count) / union
-
-
-
-done = []
-
 
 def my_hook(d):
-    global done
-    global done_song_file
-    file_name = d["filename"]
-    # file_name = file_name.split("/")[-1]
-    # file_name = ".".join(file_name.split(".")[:-1])
     if d["status"] == "finished":
-        done.append(file_name)
+        # The postprocessor converts the file to mp3, so we manually update the filename.
+        base, ext = os.path.splitext(d["filename"])
+        mp3_song = base + '.mp3'
+        print(mp3_song, end="")
 
 
 url = sys.argv[1]
@@ -69,26 +28,9 @@ ydl_opts = {
             "preferredquality": "320",
         },
         {"key": "FFmpegMetadata"},
-        # {"key": "EmbedThumbnail"},
     ],
     "writethumbnail": False,
 }
-print("\nDownloading ")
-print("Please wait...\n")
+
 with YoutubeDL(ydl_opts) as ydl:
     ydl.download([url])
-print("Done downloading!\n")
-print(done)
-for song in done:
-    # The postprocessor converts the file to mp3, so we manually update the filename.
-    base, ext = os.path.splitext(song)
-    mp3_song = base + '.mp3'
-    # call ./metadata song to get the metadata of the song
-    result = subprocess.run(["./chroma/metadata", mp3_song], capture_output=True, text=True)
-    if result.returncode != 0:
-        print(f"Error processing file: {mp3_song}")
-        print(f"Exit Code: {result.returncode}")
-        print(f"Stdout:\n{result.stdout}")
-        print(f"Stderr:\n{result.stderr}")
-
-
