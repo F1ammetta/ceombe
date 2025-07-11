@@ -270,7 +270,7 @@ func getPlaylistData(playlistURL string) (string, []string, error) {
 	return playlistTitle, urls, nil
 }
 
-func retrySearch(query string, retries int, delay time.Duration) (*subsonic.Search3Result, error) {
+func retrySearch(query string, retries int, delay time.Duration) (*subsonic.SearchResult3, error) {
 	for i := 0; i < retries; i++ {
 		result, err := subsonicClient.Search3(query, map[string]string{})
 		if err == nil && len(result.Song) > 0 {
@@ -376,7 +376,7 @@ func handleDownListCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 		}
 
 		query := song.Artist + " " + song.Title
-		
+
 		result, err := retrySearch(query, 5, 2*time.Second)
 		if err != nil {
 			fmt.Println("Error searching for song in Subsonic after retries:", err)
@@ -390,7 +390,7 @@ func handleDownListCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 				score := fuzzy.RankMatchFold(query, subsonicSong.Artist+" "+subsonicSong.Title)
 				if score > int(highestScore) {
 					highestScore = float64(score)
-					bestMatch = &result.Song[i]
+					bestMatch = result.Song[i]
 				}
 			}
 			if bestMatch != nil {
@@ -441,7 +441,7 @@ func handleDownListCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 			}
 		}
 
-		s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Successfully created playlist '%s' with %d new songs.", playlistTitle, len(songIDs))))
+		s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Successfully created playlist '%s' with %d new songs.", playlistTitle, len(songIDs)))
 	}
 
 }
