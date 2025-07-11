@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"ceombe/metadata"
 
@@ -327,7 +328,6 @@ func handleDownListCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 			}
 			if meta != nil {
 				songsChan <- meta
-				s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Downloaded: %s - %s", meta.Artist, meta.Title))
 			} else {
 				errorsChan <- fmt.Errorf("failed to get any metadata for song %s", url)
 			}
@@ -346,6 +346,8 @@ func handleDownListCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 		downloadErrors = append(downloadErrors, err)
 	}
 
+	s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Downloaded %d songs", len(downloadedSongs)))
+
 	if len(downloadErrors) > 0 {
 		var errorMsgs []string
 		for _, err := range downloadErrors {
@@ -353,6 +355,8 @@ func handleDownListCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 		}
 		s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Errors during download: %s", strings.Join(errorMsgs, "; ")))
 	}
+
+	time.Sleep(50 * time.Second)
 
 	// Get song IDs from subsonic
 	var songIDs []string
@@ -363,7 +367,7 @@ func handleDownListCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 		}
 
 		query := song.Artist + " " + song.Title
-		
+
 		result, err := subsonicClient.Search3(query, map[string]string{})
 		if err != nil {
 			fmt.Println("Error searching for song in Subsonic:", err)
@@ -371,19 +375,11 @@ func handleDownListCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 		}
 		if len(result.Song) > 0 {
 			// Fuzzy find the best match from the search results
-			var bestMatch *subsonic.Child
-			highestScore := 0.0
-			for _, subsonicSong := range result.Song {
-				score := fuzzy.RankMatchFold(query, subsonicSong.Artist+" "+subsonicSong.Title)
-				if score > int(highestScore) {
-					highestScore = float64(score)
-					bestMatch = subsonicSong
-				}
-			}
-			songIDs = append(songIDs, bestMatch.ID)
+			songIDs = append(songIDs, result.Song[0].ID)
 		} else {
 			fmt.Printf("Downloaded song \"%s - %s\" but no results found in Subsonic for query \"%s\".\n", song.Artist, song.Title, query)
 		}
+	}
 
 	// Create playlist
 	if len(songIDs) > 0 {
