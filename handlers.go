@@ -10,7 +10,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"ceombe/metadata"
 
@@ -270,18 +269,6 @@ func getPlaylistData(playlistURL string) (string, []string, error) {
 	return playlistTitle, urls, nil
 }
 
-func retrySearch(query string, retries int, delay time.Duration) (*subsonic.SearchResult3, error) {
-	for i := 0; i < retries; i++ {
-		result, err := subsonicClient.Search3(query, map[string]string{})
-		if err == nil && len(result.Song) > 0 {
-			return result, nil
-		}
-		fmt.Printf("Search for \"%s\" failed, retrying in %v...\n", query, delay)
-		time.Sleep(delay)
-	}
-	return nil, fmt.Errorf("failed to find song after %d retries", retries)
-}
-
 func handleDownListCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 	list_url := strings.TrimSpace(strings.TrimPrefix(m.Content, config.Discord.Prefix+"dl"))
 
@@ -376,32 +363,27 @@ func handleDownListCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 		}
 
 		query := song.Artist + " " + song.Title
-
-		result, err := retrySearch(query, 5, 2*time.Second)
+		
+		result, err := subsonicClient.Search3(query, map[string]string{})
 		if err != nil {
-			fmt.Println("Error searching for song in Subsonic after retries:", err)
+			fmt.Println("Error searching for song in Subsonic:", err)
 			continue
 		}
 		if len(result.Song) > 0 {
 			// Fuzzy find the best match from the search results
 			var bestMatch *subsonic.Child
 			highestScore := 0.0
-			for i, subsonicSong := range result.Song {
+			for _, subsonicSong := range result.Song {
 				score := fuzzy.RankMatchFold(query, subsonicSong.Artist+" "+subsonicSong.Title)
 				if score > int(highestScore) {
 					highestScore = float64(score)
-					bestMatch = result.Song[i]
+					bestMatch = subsonicSong
 				}
 			}
-			if bestMatch != nil {
-				songIDs = append(songIDs, bestMatch.ID)
-			} else {
-				fmt.Printf("Downloaded song \"%s - %s\" but no suitable match found in Subsonic.\n", song.Artist, song.Title)
-			}
+			songIDs = append(songIDs, bestMatch.ID)
 		} else {
 			fmt.Printf("Downloaded song \"%s - %s\" but no results found in Subsonic for query \"%s\".\n", song.Artist, song.Title, query)
 		}
-	}
 
 	// Create playlist
 	if len(songIDs) > 0 {
