@@ -4,6 +4,7 @@
 
 config.toml
 auth.toml
+aliases.toml
 
 ceombe
 chroma/metadata
