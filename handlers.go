@@ -3,11 +3,17 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"math/rand"
 	"os/exec"
 	"slices"
 	"sort"
 	"strconv"
+
+	// "net/http"
+	// "os"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -423,6 +429,18 @@ func handleDownListCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 	}
 
 }
+func handleShuffleCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
+
+	rand.Seed(time.Now().UnixNano())
+
+	q := &player.Queue
+
+	rand.Shuffle(len(*q), func(i, j int) {
+		(*q)[i], (*q)[j] = (*q)[j], (*q)[i]
+	})
+
+	s.ChannelMessageSend(m.ChannelID, "Shuffled Queue.")
+}
 
 func handleDownCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 	url := strings.TrimPrefix(m.Content, config.Discord.Prefix+"d")
@@ -543,6 +561,57 @@ func handleUploadCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 	s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("%s\n%s", succ, err))
 }
 
+func getId(stream_url string) (string, error) {
+
+	if stream_url == "" {
+		return "", errors.New("There is no song playing right now.")
+	}
+
+	urlRegex := regexp.MustCompile(`&id=([a-zA-Z0-9]*)&`)
+
+	match := urlRegex.FindStringSubmatch(stream_url)
+
+	if match == nil {
+		return "", errors.New("Unexpected error ocurred getting song id.")
+	}
+
+	return match[1], nil
+}
+func handleAliasCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
+	alias := strings.TrimPrefix(m.Content, "~alias ")
+
+	song_id, err := getId(player.Playing)
+
+	song_id = "id:" + song_id
+
+	if err != nil {
+		s.ChannelMessageSend(m.ChannelID, err.Error())
+	}
+
+	for k := range aliases {
+		if k == alias {
+			s.ChannelMessageSend(m.ChannelID, "Alias already in database")
+			return
+		}
+	}
+
+	aliases[alias] = song_id
+
+	s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Aliased %s to %s", alias, song_id))
+}
+
+func handleIdCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
+	stream_url := player.Playing
+
+	song_id, err := getId(stream_url)
+
+	if err != nil {
+		s.ChannelMessageSend(m.ChannelID, err.Error())
+	}
+
+	s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Now playing song id:%s", song_id))
+}
+
 func handlePlayListCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 	res, err := subsonicClient.GetPlaylists(map[string]string{})
 
@@ -612,6 +681,12 @@ func handlePlayCommand(s *discordgo.Session, m *discordgo.MessageCreate, prefix 
 	// s.ChannelMessageSend(m.ChannelID, "Joined voice channel.")
 
 	query := strings.TrimPrefix(m.Content, config.Discord.Prefix+prefix)
+
+	for alias := range aliases {
+		if alias == strings.TrimSpace(query) {
+			query = aliases[alias]
+		}
+	}
 
 	var song *subsonic.Child
 	if after, ok := strings.CutPrefix(strings.TrimSpace(query), "id:"); ok {

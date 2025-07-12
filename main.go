@@ -52,6 +52,7 @@ type Player struct {
 var config Config
 var subsonicClient subsonic.Client
 var player Player
+var aliases map[string]string
 
 func commandHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
 	if m.Author.ID == s.State.User.ID {
@@ -84,6 +85,10 @@ func commandHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 		handlePlayListCommand(s, m)
 
+	} else if strings.HasPrefix(m.Content, config.Discord.Prefix+"id") {
+
+		handleIdCommand(s, m)
+
 	} else if strings.HasPrefix(m.Content, config.Discord.Prefix+"upload") {
 
 		handleUploadCommand(s, m)
@@ -91,6 +96,13 @@ func commandHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
 	} else if strings.HasPrefix(m.Content, config.Discord.Prefix+"dl ") {
 
 		handleDownListCommand(s, m)
+	} else if strings.HasPrefix(m.Content, config.Discord.Prefix+"shuffle") {
+
+		handleShuffleCommand(s, m)
+
+	} else if strings.HasPrefix(m.Content, config.Discord.Prefix+"alias ") {
+
+		handleAliasCommand(s, m)
 
 	} else if strings.HasPrefix(m.Content, config.Discord.Prefix+"d ") {
 
@@ -114,6 +126,7 @@ func commandHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 	} else if m.Content == config.Discord.Prefix+"stop" {
 
+		player.Queue = []string{}
 		player.Stop = true
 
 	} else if m.Content == config.Discord.Prefix+"join" {
@@ -229,6 +242,7 @@ func downloadFile(url string, wg *sync.WaitGroup) {
 
 func main() {
 	config.loadToml()
+	handleAliases()
 
 	discord, err := connectToDiscord()
 
@@ -292,6 +306,44 @@ func connectToDiscord() (*discordgo.Session, error) {
 	}
 
 	return discord, nil
+}
+
+func updateAliases() {
+
+	for {
+
+		bytes, err := toml.Marshal(aliases)
+
+		if err != nil {
+			fmt.Println("Error: ", err)
+		}
+
+		os.WriteFile("aliases.toml", bytes, 0666)
+
+		if err != nil {
+			fmt.Println("Error: ", err)
+		}
+
+		// wait for 30 seconds
+		<-time.After(30 * time.Second)
+
+	}
+}
+
+func handleAliases() {
+	file, err := os.ReadFile("aliases.toml")
+
+	if err != nil {
+		fmt.Println("Error: ", err)
+	}
+
+	err = toml.Unmarshal(file, &aliases)
+
+	if err != nil {
+		fmt.Println("Error: ", err)
+	}
+
+	go updateAliases()
 }
 
 func (c *Config) loadToml() {
