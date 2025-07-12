@@ -682,9 +682,9 @@ func handlePlayCommand(s *discordgo.Session, m *discordgo.MessageCreate, prefix 
 
 	query := strings.TrimPrefix(m.Content, config.Discord.Prefix+prefix)
 
-	for alias := range aliases {
-		if alias == strings.TrimSpace(query) {
-			query = aliases[alias]
+	for alias, song_id := range aliases {
+		if fuzzy.LevenshteinDistance(strings.TrimSpace(query), alias) < 4 {
+			query = song_id
 		}
 	}
 
