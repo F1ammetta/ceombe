@@ -362,7 +362,7 @@ func handleDownListCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
 		s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Errors during download: %s", strings.Join(errorMsgs, "; ")))
 	}
 
-	time.Sleep(50 * time.Second)
+	time.Sleep(1 * time.Minute)
 
 	// Get song IDs from subsonic
 	var songIDs []string

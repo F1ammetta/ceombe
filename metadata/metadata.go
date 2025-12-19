@@ -7,9 +7,16 @@ import (
 	"net/http"
 	"net/url"
 	"os/exec"
-	"sort"
+	"path/filepath"
+	"regexp"
+	"time"
+
+	// "sort"
 	"strconv"
 	"strings"
+
+	"github.com/adrg/strutil"
+	"github.com/adrg/strutil/metrics"
 
 	"github.com/bogem/id3v2/v2"
 )
@@ -52,33 +59,201 @@ type AcoustIDRequest struct {
 	Metadata    string `json:"meta"`
 }
 
-type Result struct {
-	ID string `json:"id"`
-
-	Recordings []struct {
-		Artists []struct {
-			ID   string `json:"id"`
-			Name string `json:"name"`
-		} `json:"artists"`
-
-		ReleaseGroups []struct {
-			Type           string   `json:"type"`
-			ID             string   `json:"id"`
-			Title          string   `json:"title"`
-			SecondaryTypes []string `json:"secondarytypes"`
-		} `json:"releasegroups"`
-
-		Duration float64 `json:"duration"`
-		ID       string  `json:"id"`
-		Title    string  `json:"title"`
-	} `json:"recordings"`
-
-	Score float64 `json:"score"`
+// Define a struct to hold our best match for clarity
+type BestMatch struct {
+	Recording    ResultRecording
+	Artist       ResultArtist
+	ReleaseGroup ResultReleaseGroup
+	Score        float64
 }
 
+// To use the anonymous structs from the response, we'll give them names.
+// This makes the code much cleaner.
+type ResultArtist struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+type ResultReleaseGroup struct {
+	Type           string   `json:"type"`
+	ID             string   `json:"id"`
+	Title          string   `json:"title"`
+	SecondaryTypes []string `json:"secondarytypes"`
+}
+
+type ResultRecording struct {
+	Artists       []ResultArtist       `json:"artists"`
+	ReleaseGroups []ResultReleaseGroup `json:"releasegroups"`
+	Duration      float64              `json:"duration"`
+	ID            string               `json:"id"`
+	Title         string               `json:"title"`
+}
+
+type Result struct {
+	ID         string            `json:"id"`
+	Recordings []ResultRecording `json:"recordings"`
+	Score      float64           `json:"score"`
+}
+
+// Let's update the AcoustIDResponse to use these named structs
 type AcoustIDResponse struct {
 	Results []Result `json:"results"`
 	Status  string   `json:"status"`
+}
+
+// selectBestReleaseGroup chooses the best album from a list, prioritizing by type
+// and penalizing releases that appear to be compilations based on their title.
+func selectBestReleaseGroup(releaseGroups []ResultReleaseGroup, title string, artist string) *ResultReleaseGroup {
+	if len(releaseGroups) == 0 {
+		return nil
+	}
+
+	var bestReleaseGroup *ResultReleaseGroup
+	// Use a very low starting score to correctly handle negative scores from penalties.
+	maxScore := -1000
+
+	// Define the preference for release types. Higher score is better.
+	typeScores := map[string]int{
+		"Album":       4,
+		"EP":          3,
+		"Single":      2,
+		"Compilation": 1, // Already has a low score, will be penalized further if title matches.
+	}
+
+	// Expanded keywords that indicate a compilation or party album.
+	compilationKeywords := []string{
+		"hits", "greatest", "best of", "the best", "anthology", "hit", "latin", "directo", "vivo", "40", "fm", "exitos", "éxitos", "principales", "grandes", "audifonos", "audífonos",
+		"essentials", "collection", "very best", "ultimate", "party", // "party" added.
+	}
+
+	// NEW: Regex to find 4-digit numbers which might be years.
+	yearRegex := regexp.MustCompile(`\b\d{4}\b`)
+	currentYear := time.Now().Year()
+
+	for i, rg := range releaseGroups {
+		score, ok := typeScores[rg.Type]
+		if !ok {
+			score = 0 // Give a low score to other types like "Broadcast", etc.
+		}
+
+		penaltyApplied := false
+		lowerCaseTitle := strings.ToLower(rg.Title)
+
+		// Check #1: Scan for compilation keywords.
+		for _, keyword := range compilationKeywords {
+			if strings.Contains(lowerCaseTitle, keyword) {
+				score -= 10 // Apply penalty.
+				penaltyApplied = true
+				break
+			}
+		}
+
+		// NEW: Check #2: If no keyword was found, scan for a year number.
+		if !penaltyApplied {
+			potentialYears := yearRegex.FindAllString(rg.Title, -1)
+			for _, yearStr := range potentialYears {
+				year, err := strconv.Atoi(yearStr)
+				if err == nil {
+					// Check if the number is a plausible year for a music compilation.
+					if year >= 1950 && year <= currentYear+1 {
+						score -= 10 // Apply same penalty.
+						break
+					}
+				}
+			}
+		}
+
+		if strings.Contains(lowerCaseTitle, strings.ToLower(title)) {
+			score += 15
+		}
+
+		if strings.Contains(lowerCaseTitle, strings.ToLower(artist)) {
+			score += 15
+		}
+
+		if score > maxScore {
+			maxScore = score
+			// We have to point to the address of the item in the slice.
+			bestReleaseGroup = &releaseGroups[i]
+		}
+	}
+
+	if bestReleaseGroup == nil && len(releaseGroups) > 0 {
+		return &releaseGroups[0]
+	}
+
+	return bestReleaseGroup
+}
+
+func checkCoverArtExists(albumId string) bool {
+	res, err := http.Get("https://coverartarchive.org/release-group/" + albumId)
+	if err != nil {
+		// Any network error (DNS, timeout, etc.) is treated as "no cover art found".
+		return false
+	}
+	defer res.Body.Close()
+
+	// A 200 OK status code means a metadata document was found, which implies images are available.
+	// Any other status (404, 500, etc.) is treated as no cover art.
+	return res.StatusCode == http.StatusOK
+}
+
+// findBestRecording iterates through all recordings to find the best match.
+func findBestRecording(results []Result, titleFromFile string, artistFromFile string) *BestMatch {
+	var bestMatch *BestMatch
+	maxScore := -1.0
+
+	jw := metrics.NewJaroWinkler()
+	jw.CaseSensitive = false
+
+	// Define a bonus to be added to the similarity score if cover art is available.
+	// This should be high enough to outweigh small differences in text similarity.
+	const coverArtBonus = 0.15
+
+	for _, result := range results {
+		for _, recording := range result.Recordings {
+			// A recording must have an artist and an album to be considered.
+			if len(recording.Artists) == 0 || len(recording.ReleaseGroups) == 0 {
+				continue
+			}
+
+			// First, determine the best album for this recording based on type (Album > EP > etc.)
+			// This is a quick, I/O-free operation.
+			bestAlbumForThisRecording := selectBestReleaseGroup(recording.ReleaseGroups, titleFromFile, artistFromFile)
+			if bestAlbumForThisRecording == nil {
+				continue // Should not happen given the check above, but for safety.
+			}
+
+			// Now, perform a single network check to see if this album has cover art.
+			// This is the key change to prioritize albums with art.
+			hasCoverArt := checkCoverArtExists(bestAlbumForThisRecording.ID)
+
+			for _, artist := range recording.Artists {
+				titleScore := strutil.Similarity(titleFromFile, recording.Title, jw)
+				artistScore := strutil.Similarity(artistFromFile, artist.Name, jw)
+
+				// Weighted score: 60% for artist match, 40% for title match.
+				currentScore := (artistScore * 0.6) + (titleScore * 0.4)
+
+				// Add the bonus if cover art was found.
+				if hasCoverArt {
+					currentScore += coverArtBonus
+				}
+
+				if currentScore > maxScore {
+					maxScore = currentScore
+					bestMatch = &BestMatch{
+						Recording:    recording,
+						Artist:       artist,
+						ReleaseGroup: *bestAlbumForThisRecording,
+						Score:        currentScore,
+					}
+				}
+			}
+		}
+	}
+
+	return bestMatch
 }
 
 func (a *AcoustIDRequest) Do() (*AcoustIDResponse, error) {
@@ -194,6 +369,17 @@ type Metadata struct {
 	Album  string
 }
 
+func parseFilename(filePath string) (title string, artist string) {
+	base := filepath.Base(filePath)
+	ext := filepath.Ext(base)
+	name := strings.TrimSuffix(base, ext)
+	parts := strings.Split(name, " - ")
+	if len(parts) == 2 {
+		return parts[0], parts[1]
+	}
+	return "", ""
+}
+
 func GetMetadata(filePath string) (*Metadata, error) {
 	fingerprint, duration, err := GetFingerprint(filePath)
 	if err != nil {
@@ -202,7 +388,7 @@ func GetMetadata(filePath string) (*Metadata, error) {
 
 	request := AcoustIDRequest{
 		Fingerprint: fingerprint,
-		Duration:    int(duration),
+		Duration:    duration,
 		ApiKey:      "djeyw3pqpz", // TODO: Move to config
 		Metadata:    "recordings+releasegroups+compress",
 	}
@@ -216,54 +402,56 @@ func GetMetadata(filePath string) (*Metadata, error) {
 		return nil, fmt.Errorf("no results found from AcoustID")
 	}
 
-	sort.SliceStable(response.Results, func(i, j int) bool {
-		return response.Results[i].Score > response.Results[j].Score
-	})
-
-	for _, result := range response.Results {
-		if len(result.Recordings) > 0 && len(result.Recordings[0].Artists) > 0 && len(result.Recordings[0].ReleaseGroups) > 0 {
-			rec := result.Recordings[0]
-			Title := rec.Title
-			Artist := rec.Artists[0].Name
-			Album := rec.ReleaseGroups[0].Title
-			AlbumId := rec.ReleaseGroups[0].ID
-
-			image, _ := GetCoverImage(AlbumId)
-
-			tag, err := id3v2.Open(filePath, id3v2.Options{Parse: true})
-			if err != nil {
-				return nil, fmt.Errorf("failed to open file for tagging: %w", err)
-			}
-			defer tag.Close()
-
-			tag.SetTitle(Title)
-			tag.SetArtist(Artist)
-			tag.SetAlbum(Album)
-
-			if image != nil {
-				pic := id3v2.PictureFrame{
-					Encoding:    id3v2.EncodingUTF8,
-					MimeType:    "image/jpeg",
-					PictureType: id3v2.PTFrontCover,
-					Description: "Front cover",
-					Picture:     image,
-				}
-				tag.AddAttachedPicture(pic)
-			}
-
-			if err = tag.Save(); err != nil {
-				return nil, fmt.Errorf("failed to save tags: %w", err)
-			}
-
-			return &Metadata{
-				Title:  Title,
-				Artist: Artist,
-				Album:  Album,
-			}, nil
-		}
+	// 1. Parse the title and artist from the local filename
+	titleFromFile, artistFromFile := parseFilename(filePath)
+	if artistFromFile == "" {
+		return nil, fmt.Errorf("could not parse artist from filename: %s", filePath)
 	}
 
-	return nil, fmt.Errorf("no results with complete metadata found")
+	// 2. Find the single best recording across all results
+	bestMatch := findBestRecording(response.Results, titleFromFile, artistFromFile)
+	if bestMatch == nil {
+		return nil, fmt.Errorf("no suitable recording match found in AcoustID results")
+	}
+
+	// 3. Use the metadata from the best match
+	Title := bestMatch.Recording.Title
+	Artist := bestMatch.Artist.Name
+	Album := bestMatch.ReleaseGroup.Title
+	AlbumId := bestMatch.ReleaseGroup.ID
+
+	image, _ := GetCoverImage(AlbumId) // Error is ignored, as cover art is optional
+
+	tag, err := id3v2.Open(filePath, id3v2.Options{Parse: true})
+	if err != nil {
+		return nil, fmt.Errorf("failed to open file for tagging: %w", err)
+	}
+	defer tag.Close()
+
+	tag.SetTitle(Title)
+	tag.SetArtist(Artist)
+	tag.SetAlbum(Album)
+
+	if image != nil {
+		pic := id3v2.PictureFrame{
+			Encoding:    id3v2.EncodingUTF8,
+			MimeType:    "image/jpeg",
+			PictureType: id3v2.PTFrontCover,
+			Description: "Front cover",
+			Picture:     image,
+		}
+		tag.AddAttachedPicture(pic)
+	}
+
+	if err = tag.Save(); err != nil {
+		return nil, fmt.Errorf("failed to save tags: %w", err)
+	}
+
+	return &Metadata{
+		Title:  Title,
+		Artist: Artist,
+		Album:  Album,
+	}, nil
 }
 
 func ReadTagsFromFile(filePath string) (*Metadata, error) {

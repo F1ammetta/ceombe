@@ -10,6 +10,7 @@ require (
 
 require (
 	github.com/F1ammetta/go-subsonic v0.0.0-20241219041208-4d7dc5ab06e8
+	github.com/adrg/strutil v0.3.1
 	github.com/bogem/id3v2/v2 v2.1.4
 	github.com/go-tts/tts v1.0.1
 	github.com/lithammer/fuzzysearch v1.1.8
